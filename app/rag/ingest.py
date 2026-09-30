@@ -26,9 +26,19 @@ def extract_text_from_file(file_path: Path) -> str:
             return f.read()
     elif ext == ".pdf":
         try:
-            with open(file_path, "rb") as f:
-                content = f.read().decode("latin-1", errors="ignore")
-                return content
+            from pypdf import PdfReader
+
+            reader = PdfReader(str(file_path))
+            pages = []
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    pages.append(page_text.strip())
+            return "\n\n".join(pages)
+        except ImportError:
+            # Do not embed compressed PDF bytes as if they were document text.
+            # The dependency is declared in requirements.txt/pyproject.toml.
+            return ""
         except Exception:
             return ""
     elif ext == ".docx":
@@ -158,7 +168,7 @@ def ingest_knowledge_base(
         db.add(kb)
         db.commit()
 
-    supported_extensions = {".md", ".txt", ".pdf", ".docx"}
+    supported_extensions = {".md", ".txt", ".csv", ".json", ".pdf", ".docx"}
     files = [p for p in path.glob("**/*") if p.is_file() and p.suffix.lower() in supported_extensions]
 
     docs_ingested = 0

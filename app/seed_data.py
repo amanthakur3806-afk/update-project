@@ -238,6 +238,11 @@ def seed_database():
                     chunk_overlap=50
                 )
                 db.add(kb)
+            else:
+                # Keep seeded knowledge bases anchored to this checkout. The
+                # database may have been copied from another machine and can
+                # otherwise retain a stale absolute folder path.
+                kb.folder_path = str(kb_path)
         db.commit()
 
         # Ingest documents if DB or vector store is empty

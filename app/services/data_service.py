@@ -43,8 +43,12 @@ class DataService:
     def set_demo_mode(self, enabled: bool):
         """Toggle between Demo Mode and Real Mode."""
         self._demo_mode = enabled
-        if enabled and not self._customers:
-            self.load_demo_data()
+        if enabled:
+            if not self._customers:
+                self.load_demo_data()
+        else:
+            # Real Mode must not retain records loaded from demo fixtures.
+            self.clear_all()
 
     # ----------------------------------------------------------------------
     # External Demo Data Ingestion

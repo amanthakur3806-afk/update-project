@@ -13,6 +13,28 @@ from app.schemas.execution import ExecutionTraceResponse, ExecutionStepResponse
 
 router = APIRouter(prefix="/executions", tags=["Executions & Observability"])
 
+@router.get("", summary="List execution history")
+def list_executions(db: Session = Depends(get_db)):
+    """Return the execution records used by the dashboard history view."""
+    executions = (
+        db.query(Execution)
+        .order_by(Execution.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "execution_id": execution.execution_id,
+            "agent_id": execution.agent_id,
+            "conversation_id": execution.conversation_id,
+            "query": execution.query,
+            "status": execution.status,
+            "duration_ms": execution.duration_ms,
+            "created_at": execution.created_at,
+        }
+        for execution in executions
+    ]
+
 @router.get("/{execution_id}", response_model=ExecutionTraceResponse, summary="Get full execution details and timeline")
 def get_execution(execution_id: str, db: Session = Depends(get_db)):
     execution = db.query(Execution).filter(Execution.execution_id == execution_id).first()

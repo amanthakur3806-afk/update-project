@@ -97,17 +97,23 @@ NEXUS AI CONSOLE (Simple View & Technical View)
 ## 3. Quick Start
 
 ### Prerequisites
-- Python 3.12 (`py -3.12` on Windows)
-- Dependencies installed via `requirements.txt`:
+- Python 3.10+ (`py -3` on Windows)
+- Dependencies installed into the same Python interpreter used to run the app:
   ```powershell
-  pip install -r requirements.txt
+  py -3 -m pip install -r requirements.txt
   ```
 
 ### Run Server (Default Port: 8080)
 ```powershell
 cd "c:\Users\91887\Downloads\main-project-main"
-py -3.12 run.py
+py -3 run.py
 ```
+
+If you need a specific Python version, use the same version in both commands
+(for example, `py -3.13 -m pip` and `py -3.13 run.py`). Using `python -m pip`
+(or `py -3 -m pip` on Windows) is
+important because a standalone `pip` command can install packages into a
+different Python environment than the one running `run.py`.
 
 Open the interfaces:
 - **Operations Console**: [http://localhost:8080/](http://localhost:8080/)

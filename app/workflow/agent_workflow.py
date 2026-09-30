@@ -49,6 +49,84 @@ def redact_secrets(text: str) -> str:
     return text
 
 
+def _rag_query_variants(query: str) -> List[str]:
+    """Build focused retrieval queries for multi-company/document questions."""
+    variants = [query]
+    years = re.findall(r"\b20\d{2}\b", query)
+    stop_words = {
+        "what", "was", "were", "the", "and", "or", "with", "compare",
+        "between", "versus", "how", "much", "revenue", "total", "in",
+        "for", "from", "this", "that", "year"
+    }
+    entities = []
+    query_lower = query.lower()
+    # Match terms against indexed filenames as well as title-cased words. This
+    # keeps retrieval working when users type "apple" and "google" in lower case.
+    indexed_terms = set()
+    for metadata in vector_store.metadata_map.values():
+        filename = metadata.get("filename", "")
+        indexed_terms.update(re.findall(r"[A-Za-z][A-Za-z0-9&.-]{2,}", filename))
+
+    candidates = re.findall(r"\b[A-Za-z][A-Za-z0-9&.-]{2,}\b", query)
+    candidates.extend(indexed_terms)
+    for token in candidates:
+        normalized = token.strip(".,:;()[]")
+        if (
+            normalized.lower() in query_lower
+            and normalized.lower() not in stop_words
+            and normalized not in years
+            and normalized.lower() not in {item.lower() for item in entities}
+        ):
+            entities.append(normalized)
+
+    for entity in entities:
+        year_text = " ".join(years)
+        variants.append(f"{entity} total net sales revenue {year_text}".strip())
+
+    return variants
+
+
+def _retrieve_rag_chunks(query: str, kb_id: str, top_k: int = 8) -> List[Dict[str, Any]]:
+    """Merge focused searches so comparisons include each source document."""
+    merged: Dict[tuple, Dict[str, Any]] = {}
+    variants = _rag_query_variants(query)
+    entities = [variant.split(" ", 1)[0] for variant in variants[1:]]
+    for variant in variants:
+        query_vector = embeddings_provider.get_embedding(variant)
+        for chunk in vector_store.search(query_vector=query_vector, top_k=4, kb_id=kb_id):
+            key = (chunk.get("document_id"), chunk.get("chunk_index"))
+            previous = merged.get(key)
+            if previous is None or chunk.get("score", 0.0) > previous.get("score", 0.0):
+                merged[key] = chunk
+
+    ranked = sorted(merged.values(), key=lambda item: item.get("score", 0.0), reverse=True)
+
+    # Reserve slots for each uploaded document explicitly named in the query.
+    # This prevents a comparison from returning only the strongest side.
+    selected = []
+    selected_keys = set()
+    for entity in entities:
+        matching = [
+            item for item in ranked
+            if entity.lower() in item.get("filename", "").lower()
+        ]
+        for item in matching[:2]:
+            key = (item.get("document_id"), item.get("chunk_index"))
+            if key not in selected_keys:
+                selected.append(item)
+                selected_keys.add(key)
+
+    for item in ranked:
+        key = (item.get("document_id"), item.get("chunk_index"))
+        if key not in selected_keys:
+            selected.append(item)
+            selected_keys.add(key)
+        if len(selected) >= top_k:
+            break
+
+    return selected[:top_k]
+
+
 class AgentOrchestratorWorkflow(Workflow):
     """
     Enterprise LlamaIndex Workflow orchestrating dynamic multi-MCP agents.
@@ -167,11 +245,10 @@ class AgentOrchestratorWorkflow(Workflow):
             wf_cfg = agent_cfg.get("workflow_configuration", {})
             if wf_cfg.get("rag_enabled", True):
                 target_kb = wf_cfg.get("knowledge_base", "customer_docs")
-                q_vec = embeddings_provider.get_embedding(ev.query)
-                retrieved_chunks = vector_store.search(
-                    query_vector=q_vec,
-                    top_k=3,
-                    kb_id=target_kb
+                retrieved_chunks = _retrieve_rag_chunks(
+                    query=ev.query,
+                    kb_id=target_kb,
+                    top_k=8
                 )
 
             # Record step in trace

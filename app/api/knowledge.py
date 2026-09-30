@@ -139,6 +139,18 @@ async def upload_document(
     if not kb:
         raise HTTPException(status_code=404, detail=f"Knowledge base '{kb_id}' not found.")
 
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="A file must be selected for upload.")
+
+    supported_extensions = {".md", ".txt", ".csv", ".json", ".pdf", ".docx"}
+    extension = Path(file.filename).suffix.lower()
+    if extension not in supported_extensions:
+        supported = ", ".join(sorted(supported_extensions))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{extension or 'unknown'}'. Supported types: {supported}.",
+        )
+
     target_dir = Path(kb.folder_path)
     target_dir.mkdir(parents=True, exist_ok=True)
 

@@ -25,6 +25,11 @@ def test_get_agent_config():
     assert "CRM.get_customer" in data["allowed_tools"]
     assert "Analytics.get_customer_metrics" in data["allowed_tools"]
 
+def test_list_executions():
+    response = client.get("/executions")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
 def test_update_agent_config():
     # Update temperature
     response = client.put(

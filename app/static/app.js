@@ -913,8 +913,8 @@ async function handleKBUpload(e) {
     if (res.ok) {
       statusEl.textContent = `Success: Ingested ${data.documents_ingested} document and created ${data.chunks_created} vectors in FAISS.`;
       fileInput.value = "";
-      loadKnowledgeView();
-      loadDashboardMetrics();
+      await loadKnowledgeView();
+      await loadSystemStatus();
     } else {
       statusEl.textContent = "Upload failed: " + (data.detail || "Error");
     }
@@ -934,8 +934,8 @@ async function deleteKnowledgeDoc(docId) {
     const data = await res.json();
     if (res.ok) {
       alert(`Document deleted: ${data.vectors_purged} vectors purged from FAISS.`);
-      loadKnowledgeView();
-      loadDashboardMetrics();
+      await loadKnowledgeView();
+      await loadSystemStatus();
     } else {
       alert("Delete failed: " + (data.detail || "Error"));
     }
@@ -955,8 +955,8 @@ async function rebuildAllIndexes() {
     const data = await res.json();
     if (res.ok) {
       alert(`FAISS Rebuild complete! Total active vectors: ${data.total_vectors}.`);
-      loadKnowledgeView();
-      loadDashboardMetrics();
+      await loadKnowledgeView();
+      await loadSystemStatus();
     } else {
       alert("Rebuild failed: " + (data.detail || "Error"));
     }

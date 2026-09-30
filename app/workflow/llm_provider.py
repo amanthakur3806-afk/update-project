@@ -142,7 +142,7 @@ class LLMProvider:
 
         if retrieved_chunks:
             chunk_texts = []
-            for c in retrieved_chunks[:3]:
+            for c in retrieved_chunks[:8]:
                 c_content = c.get("content", "").strip()
                 if len(c_content) > 1000:
                     c_content = c_content[:1000] + "... [truncated]"
@@ -244,7 +244,7 @@ class LLMProvider:
         if retrieved_chunks:
             has_verified = True
             verified_lines.append("\n### 4. Grounded Documentation & SLA Policies (RAG)")
-            for c in retrieved_chunks[:3]:
+            for c in retrieved_chunks[:8]:
                 snippet = c['content'].split("\n")[0].strip("# ")
                 if len(snippet) > 120:
                     snippet = snippet[:120] + "..."
