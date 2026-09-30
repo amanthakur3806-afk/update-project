@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus AI — Agent Operations Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ====================================================================
+       APP SHELL: Top Header + Main Workspace
+       ==================================================================== -->
+  <div class="app-shell">
+
+    <!-- ---- TOP NAV BAR ---- -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-badge">NEXUS</div>
+        <div class="brand-text">
+          <span class="brand-name">Nexus AI</span>
+          <span class="brand-sub">Agent Operations Platform</span>
+        </div>
+      </div>
+
+      <div class="nav-center">
+        <span id="envBadge" class="env-pill env-demo">
+          <span class="env-dot"></span>
+          DEMO MODE
+        </span>
+        <span class="version-tag">v2.0 &bull; LlamaIndex Workflows &bull; Dual MCP &bull; FAISS</span>
+      </div>
+
+      <div class="nav-right" style="position:relative;">
+        <a href="/docs" target="_blank" class="nav-btn nav-btn-outline">Swagger API Docs</a>
+        <div class="health-indicator cursor-pointer" onclick="toggleHealthPopover(event)">
+          <span id="globalHealthDot" class="status-dot dot-green"></span>
+          <span id="globalHealthText">Operational</span>
+        </div>
+        <!-- Compact Health Popover (Section 3 & 25) -->
+        <div id="healthPopover" class="health-popover" style="display:none;" onclick="event.stopPropagation()">
+          <div class="popover-head">
+            <span class="font-bold text-xs">System Diagnostics</span>
+            <span class="badge badge-green text-xs" id="popoverOverallStatus">Healthy</span>
+          </div>
+          <div class="popover-body">
+            <div class="popover-row">
+              <span class="text-xs muted">LLM</span>
+              <span class="font-mono text-xs text-green" id="popoverLLM">Connected</span>
+            </div>
+            <div class="popover-row">
+              <span class="text-xs muted">Database</span>
+              <span class="font-mono text-xs text-green" id="popoverDB">Connected</span>
+            </div>
+            <div class="popover-row">
+              <span class="text-xs muted">CRM MCP</span>
+              <span class="font-mono text-xs text-green" id="popoverCRM">Connected</span>
+            </div>
+            <div class="popover-row">
+              <span class="text-xs muted">Analytics MCP</span>
+              <span class="font-mono text-xs text-green" id="popoverAnalytics">Connected</span>
+            </div>
+            <div class="popover-row">
+              <span class="text-xs muted">Vector Store</span>
+              <span class="font-mono text-xs text-green" id="popoverVectors">Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ---- BODY LAYOUT: Sidebar + Active View ---- -->
+    <div class="workspace">
+
+      <!-- LEFT SIDEBAR NAVIGATION (Section 3) -->
+      <aside class="sidebar">
+        <div class="sidebar-section-title">PLATFORM</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="consoleView" onclick="switchView('consoleView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Agent Console
+          </button>
+          <button class="nav-item" data-view="agentsView" onclick="switchView('agentsView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Agents
+          </button>
+          <button class="nav-item" data-view="knowledgeView" onclick="switchView('knowledgeView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            Knowledge
+          </button>
+          <button class="nav-item" data-view="mcpView" onclick="switchView('mcpView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            MCP Servers
+          </button>
+          <button class="nav-item" data-view="memoryView" onclick="switchView('memoryView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Memory
+          </button>
+          <button class="nav-item" data-view="executionsView" onclick="switchView('executionsView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Executions
+          </button>
+        </nav>
+
+        <div class="sidebar-section-title" style="margin-top: 2rem;">PREFERENCES</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item" data-view="settingsView" onclick="switchView('settingsView')">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Settings
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="status-summary-card">
+            <div class="summary-line">
+              <span class="muted">Orchestrator:</span>
+              <span class="font-mono text-xs">LlamaIndex Workflows</span>
+            </div>
+            <div class="summary-line">
+              <span class="muted">MCP Servers:</span>
+              <span class="font-mono text-xs">2 Connected</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ================================================================
+           VIEW 1: AGENTS CATALOG
+           ================================================================ -->
+      <section id="agentsView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Configured Agents</h1>
+            <p class="panel-sub">Dynamically configured agents with individual prompts, playbooks, tool permissions, and RAG knowledge bases.</p>
+          </div>
+          <button class="btn btn-primary" onclick="switchView('consoleView')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Open Agent Console
+          </button>
+        </div>
+
+        <div id="agentsGrid" class="agents-grid mt-3">
+          <!-- Populated dynamically by renderAgentsView() -->
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 2: AGENT CONSOLE (Primary View)
+           ================================================================ -->
+      <section id="consoleView" class="view-panel active">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Agent Console</h1>
+            <p class="panel-sub">Coordinated Multi-MCP tool execution, grounded RAG retrieval, and dual-tier memory.</p>
+          </div>
+          <div class="view-toggle-group">
+            <span class="toggle-label">View Mode:</span>
+            <button id="viewToggleSimple" class="toggle-btn active" onclick="setConsoleViewMode('simple')">Simple View</button>
+            <button id="viewToggleTech" class="toggle-btn" onclick="setConsoleViewMode('tech')">Technical View</button>
+          </div>
+        </div>
+
+        <div class="console-layout">
+          <!-- Console Left: Controls -->
+          <div class="console-sidebar">
+            <div class="card">
+              <h3 class="card-title">Agent Selection</h3>
+              <div class="form-group mt-2">
+                <label class="form-label" for="consoleAgentSelect">Target Agent</label>
+                <select id="consoleAgentSelect" class="form-select" onchange="onConsoleAgentChange()"></select>
+              </div>
+
+              <!-- Live Agent Card -->
+              <div class="agent-spec-card mt-3">
+                <div class="agent-spec-head">
+                  <span id="agentSpecCategory" class="badge badge-purple">Research</span>
+                  <span id="agentSpecModel" class="font-mono text-xs">groq / llama-3.3-70b</span>
+                </div>
+                <div id="agentSpecName" class="agent-spec-title">-</div>
+                <p id="agentSpecDesc" class="agent-spec-desc">-</p>
+                <div class="spec-divider"></div>
+                <div class="spec-row">
+                  <span class="muted text-xs">MCP Servers:</span>
+                  <span id="agentSpecMcpCount" class="font-mono text-xs text-primary">2 MCP servers (CRM, Analytics)</span>
+                </div>
+                <div class="spec-row mt-1">
+                  <span class="muted text-xs">Authorized Tools:</span>
+                  <span id="agentSpecToolsCount" class="font-mono text-xs text-primary">5 tools</span>
+                </div>
+                <div class="spec-row mt-1">
+                  <span class="muted text-xs">Knowledge Base:</span>
+                  <span id="agentSpecKB" class="font-mono text-xs tag-chip">-</span>
+                </div>
+                <div class="spec-row mt-1">
+                  <span class="muted text-xs">Memory:</span>
+                  <span id="agentSpecMemory" class="text-xs">Short-term &bull; Long-term</span>
+                </div>
+                <button class="btn btn-xs btn-outline w-full mt-3" onclick="openAgentConfigModal()">View Configuration</button>
+              </div>
+
+              <div class="spec-divider mt-3"></div>
+
+              <!-- Query Form -->
+              <h3 class="card-title mt-2">Task Query</h3>
+              <div class="form-group mt-2">
+                <label class="form-label" for="consoleConvId">Conversation ID (Short-Term Memory)</label>
+                <input type="text" id="consoleConvId" class="form-input font-mono text-xs" value="conv_session_01">
+              </div>
+
+              <div class="form-group mt-2">
+                <label class="form-label" for="consoleQueryInput">Prompt</label>
+                <textarea id="consoleQueryInput" class="form-textarea" rows="4" placeholder="Enter question or click a generic example query below...">Analyze customer ABC using CRM, Analytics, and internal docs.</textarea>
+              </div>
+
+              <!-- Generic Example Query Pills (No hardcoded customer names in button labels) -->
+              <div class="sample-pills mt-2">
+                <span class="sample-pill" onclick="setConsoleQuery('Analyze customer ABC using CRM, Analytics, and internal docs.')">Customer overview</span>
+                <span class="sample-pill" onclick="setConsoleQuery('What is the ARR, churn risk score, and NPS for customer ABC?')">Financial analysis</span>
+                <span class="sample-pill" onclick="setConsoleQuery('What SLA response times are guaranteed for Sev-1 incidents, and what is our escalation policy?')">Policy check</span>
+                <span class="sample-pill" onclick="setConsoleQuery('What are the key integration guidelines and architecture details in our technical docs?')">Document question</span>
+                <span class="sample-pill" onclick="setConsoleQuery('Compare customer ABC and customer XYZ in terms of contract tier, ARR, and SLA compliance.')">Customer comparison</span>
+              </div>
+
+              <button id="consoleRunBtn" class="btn btn-primary w-full mt-3" onclick="runAgentWorkflow()">
+                <span id="consoleSpinner" class="btn-spinner" style="display:none;"></span>
+                <span id="consoleRunLabel">Run Workflow</span>
+              </button>
+              <div id="consoleProgressStep" class="text-xs text-center muted mt-2 font-mono" style="display:none;">Initializing workflow...</div>
+            </div>
+          </div>
+
+          <!-- Console Right: Output Display -->
+          <div class="console-main">
+            <!-- Idle / Empty State (Section 5 Architecture Flowchart) -->
+            <div id="consoleEmpty" class="empty-state card">
+              <div class="flow-diagram-container">
+                <div class="card-section-label mb-2">Workflow Architecture (Multi-MCP Orchestration)</div>
+                <div class="flow-agent-node">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  Configurable Agent
+                </div>
+                <div class="flow-connector-v"></div>
+                <div class="flow-branches-row">
+                  <div class="flow-branch-card branch-crm">
+                    <div class="flow-branch-title"><span>CRM MCP Server</span><span class="badge badge-blue text-xs">Port 8001</span></div>
+                    <div class="flow-branch-tool"><span>CRM.get_customer</span><span class="text-muted text-xs">profile, tier, SLA</span></div>
+                  </div>
+                  <div class="flow-branch-card branch-analytics">
+                    <div class="flow-branch-title"><span>Analytics MCP Server</span><span class="badge badge-green text-xs">Port 8002</span></div>
+                    <div class="flow-branch-tool"><span>Analytics.get_metrics</span><span class="text-muted text-xs">ARR, churn, NPS</span></div>
+                    <div class="flow-branch-tool"><span>Analytics.get_history</span><span class="text-muted text-xs">telemetry, events</span></div>
+                  </div>
+                  <div class="flow-branch-card branch-rag">
+                    <div class="flow-branch-title"><span>Knowledge Base (RAG)</span><span class="badge badge-purple text-xs">FAISS</span></div>
+                    <div class="flow-branch-tool"><span>customer_docs</span><span class="text-muted text-xs">grounded chunks</span></div>
+                    <div class="flow-branch-tool"><span>company_policies</span><span class="text-muted text-xs">compliance rules</span></div>
+                  </div>
+                </div>
+                <div class="flow-connector-v"></div>
+                <div class="flow-llm-node">Synthesized Context &rarr; LLM (Groq / Llama-3.3-70b)</div>
+                <div class="flow-connector-v"></div>
+                <div class="flow-answer-node">&check; Verified Grounded Answer</div>
+              </div>
+              <p class="empty-desc mt-3 text-center">Select an agent, enter a question, and run the workflow. The system coordinates multiple MCP servers and RAG retrieval in a single execution.</p>
+            </div>
+
+            <!-- Execution Results Container -->
+            <div id="consoleResult" style="display:none;">
+
+              <!-- Workflow Plan Banner -->
+              <div id="consolePlanBanner" class="workflow-plan-banner mb-3">
+                <div class="plan-header">
+                  <span class="plan-title text-xs">WORKFLOW PLAN EXECUTED</span>
+                  <span id="planDuration" class="font-mono text-xs muted">0ms</span>
+                </div>
+                <div id="planSummaryText" class="font-mono text-xs text-primary">
+                  CRM MCP (get_customer) + Analytics MCP (get_metrics, get_history) + RAG (customer_docs)
+                </div>
+              </div>
+
+              <!-- Live Dynamic Flowchart with Green Active Highlights -->
+              <div id="consoleLiveFlowchart" class="card mb-3 p-3" style="background-color: var(--bg-surface);">
+                <!-- Dynamically populated by renderLiveFlowchart() -->
+              </div>
+
+              <!-- Result Status Bar -->
+              <div class="result-status-bar mb-3">
+                <span id="resultStatusTag" class="badge badge-green">COMPLETED</span>
+                <span class="status-meta">Execution: <code id="resultExecutionId" class="font-mono">-</code></span>
+                <span class="status-meta">Duration: <strong id="resultDuration">0ms</strong></span>
+                <div class="ml-auto flex items-center gap-2">
+                  <span class="muted text-xs">Tools:</span>
+                  <div id="resultToolsChips" class="flex gap-1"></div>
+                </div>
+              </div>
+
+              <!-- SIMPLE VIEW (Section 5) -->
+              <div id="simpleViewContainer">
+                <!-- Section 1: Final Answer -->
+                <div class="card">
+                  <div class="card-header-flex mb-2">
+                    <h3 class="card-title">Verified Agent Output</h3>
+                    <span class="badge badge-green text-xs">Grounded</span>
+                  </div>
+                  <div id="consoleAnswerBody" class="answer-content"></div>
+                </div>
+
+                <!-- Section 2: Tools Used (Hierarchical Tree) -->
+                <div class="card mt-3">
+                  <div class="card-header-flex mb-2">
+                    <div>
+                      <h3 class="card-title">Tools Used across MCP Servers</h3>
+                      <p class="card-sub text-xs muted">Tools coordinated across independent MCP servers within this single workflow</p>
+                    </div>
+                    <span id="multiMcpBadge" class="badge badge-purple">Dual MCP Orchestration</span>
+                  </div>
+                  <div id="consoleToolsTree" class="tool-tree-container"></div>
+                </div>
+
+                <!-- Section 3: Grounded Sources (RAG) -->
+                <div class="card mt-3">
+                  <div class="card-header-flex mb-2">
+                    <div>
+                      <h3 class="card-title">Grounded Knowledge Sources (RAG)</h3>
+                      <p class="card-sub text-xs muted">Semantic vector chunks retrieved from FAISS</p>
+                    </div>
+                    <button class="btn btn-xs btn-outline" onclick="toggleAllSources()">View All Sources</button>
+                  </div>
+                  <div id="consoleSourcesGrid" class="sources-grid"></div>
+                </div>
+
+                <!-- Section 4: Compact Step-by-Step Execution Trace -->
+                <div class="card mt-3">
+                  <div class="card-header-flex mb-2">
+                    <div>
+                      <h3 class="card-title">Step-by-Step Execution Trace</h3>
+                      <p class="card-sub text-xs muted">Orchestrated LlamaIndex workflow progression with sequential state audit</p>
+                    </div>
+                    <span id="traceTotalDuration" class="font-mono text-xs text-primary">Total: 0ms</span>
+                  </div>
+                  <div id="consoleCompactTrace" class="compact-trace-list"></div>
+                </div>
+              </div>
+
+              <!-- TECHNICAL VIEW (Section 5 & 24) -->
+              <div id="techViewContainer" style="display:none;">
+                <!-- Summary Strip with 5 Key Metrics -->
+                <div id="techSummaryStrip" class="tech-summary-strip mb-3">
+                  <div>
+                    <span id="techMetricTime" class="tech-metric-val font-mono">0ms</span>
+                    <span class="tech-metric-lbl">Total Time</span>
+                  </div>
+                  <div>
+                    <span id="techMetricTools" class="tech-metric-val font-mono">0</span>
+                    <span class="tech-metric-lbl">MCP Tools</span>
+                  </div>
+                  <div>
+                    <span id="techMetricRag" class="tech-metric-val font-mono">0</span>
+                    <span class="tech-metric-lbl">RAG Chunks</span>
+                  </div>
+                  <div>
+                    <span id="techMetricTokens" class="tech-metric-val font-mono">~1,240</span>
+                    <span class="tech-metric-lbl">Est. Tokens</span>
+                  </div>
+                  <div>
+                    <span id="techMetricModel" class="tech-metric-val font-mono text-xs" style="line-height:2rem;">llama-3.3-70b</span>
+                    <span class="tech-metric-lbl">Model Provider</span>
+                  </div>
+                </div>
+
+                <!-- 6 Tabs -->
+                <div class="tab-nav">
+                  <button class="tab-btn active" data-techtot="techTimelineTab" onclick="switchTechTab('techTimelineTab')">Timeline</button>
+                  <button class="tab-btn" data-techtot="techMcpTab" onclick="switchTechTab('techMcpTab')">MCP Calls</button>
+                  <button class="tab-btn" data-techtot="techRagTab" onclick="switchTechTab('techRagTab')">RAG</button>
+                  <button class="tab-btn" data-techtot="techMemoryTab" onclick="switchTechTab('techMemoryTab')">Memory</button>
+                  <button class="tab-btn" data-techtot="techPromptTab" onclick="switchTechTab('techPromptTab')">Final Prompt</button>
+                  <button class="tab-btn" data-techtot="techJsonTab" onclick="switchTechTab('techJsonTab')">Raw JSON</button>
+                </div>
+
+                <!-- Tab 1: Detailed Timeline -->
+                <div id="techTimelineTab" class="tech-tab-pane active card mt-2">
+                  <h3 class="card-title mb-2">Detailed Workflow Progression</h3>
+                  <div id="consoleTimelineList" class="timeline-tree"></div>
+                </div>
+
+                <!-- Tab 2: MCP Calls Payloads -->
+                <div id="techMcpTab" class="tech-tab-pane card mt-2">
+                  <h3 class="card-title mb-2">Raw MCP Tool Invocations</h3>
+                  <div id="consoleToolsRawList"></div>
+                </div>
+
+                <!-- Tab 3: RAG Chunks Detail -->
+                <div id="techRagTab" class="tech-tab-pane card mt-2">
+                  <h3 class="card-title mb-2">Retrieved RAG Chunks with Vector Distance</h3>
+                  <div id="consoleRagDetailList"></div>
+                </div>
+
+                <!-- Tab 4: Memory Context -->
+                <div id="techMemoryTab" class="tech-tab-pane card mt-2">
+                  <h3 class="card-title mb-2">Dialogue &amp; Semantic Memory State</h3>
+                  <div id="consoleMemoryContext"></div>
+                </div>
+
+                <!-- Tab 5: Final Sanitized Prompt Audit -->
+                <div id="techPromptTab" class="tech-tab-pane card mt-2">
+                  <div class="card-header-flex mb-2">
+                    <div>
+                      <h3 class="card-title">Sanitized Prompt Audit Log (final_prompt.txt)</h3>
+                      <p class="card-sub">Exact prompt dispatched to LLM. Redacted for security.</p>
+                    </div>
+                    <button class="btn btn-sm btn-outline" onclick="copyPromptLog()">Copy</button>
+                  </div>
+                  <pre id="consolePromptLog" class="code-block"></pre>
+                </div>
+
+                <!-- Tab 6: Complete Raw JSON Response -->
+                <div id="techJsonTab" class="tech-tab-pane card mt-2">
+                  <div class="card-header-flex mb-2">
+                    <h3 class="card-title">Complete Execution Response JSON</h3>
+                    <button class="btn btn-sm btn-outline" onclick="copyRawJsonResponse()">Copy JSON</button>
+                  </div>
+                  <pre id="consoleRawJsonLog" class="code-block"></pre>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 3: KNOWLEDGE BASES (RAG Manager)
+           ================================================================ -->
+      <section id="knowledgeView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Knowledge Base Manager (RAG)</h1>
+            <p class="panel-sub">Dynamic document ingestion, semantic chunking, and FAISS vector index lifecycle management.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-outline" onclick="rebuildAllIndexes()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              Rebuild All FAISS Indexes
+            </button>
+          </div>
+        </div>
+
+        <!-- Knowledge Base Partitions -->
+        <div id="kbPartitionsGrid" class="kb-grid"></div>
+
+        <!-- Upload & Ingestion Card -->
+        <div class="card mt-4">
+          <h2 class="card-title">Ingest Document</h2>
+          <p class="card-sub">Upload a document (.md, .txt, .pdf, .docx) to chunk and vectorize dynamically into FAISS.</p>
+          <form id="kbUploadForm" class="mt-3 flex gap-3 items-end" onsubmit="handleKBUpload(event)">
+            <div class="form-group flex-1">
+              <label class="form-label" for="kbUploadTarget">Target Knowledge Base</label>
+              <select id="kbUploadTarget" class="form-select">
+                <option value="customer_docs">customer_docs (Customer Profiles &amp; Architecture)</option>
+                <option value="company_policies">company_policies (Corporate SLAs &amp; Compliance)</option>
+                <option value="technical_docs">technical_docs (Integration &amp; Technical Specs)</option>
+              </select>
+            </div>
+            <div class="form-group flex-2">
+              <label class="form-label" for="kbUploadFile">Document File</label>
+              <input type="file" id="kbUploadFile" class="form-input" accept=".md,.txt,.pdf,.docx,.csv" required>
+            </div>
+            <button type="submit" class="btn btn-primary" id="kbUploadBtn">Upload &amp; Index</button>
+          </form>
+          <p id="kbUploadStatus" class="status-msg mt-2"></p>
+        </div>
+
+        <!-- Documents Table -->
+        <div class="card mt-4">
+          <div class="card-header-flex">
+            <div>
+              <h2 class="card-title">Indexed Documents</h2>
+              <p class="card-sub">Manage source documents. Deleting a document synchronously invalidates its vectors in FAISS.</p>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="loadKnowledgeView()">Refresh</button>
+          </div>
+
+          <div class="table-container mt-3">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Filename</th>
+                  <th>Partition (KB)</th>
+                  <th>Type</th>
+                  <th>Size</th>
+                  <th>Chunks</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="kbDocumentsBody">
+                <tr><td colspan="8" class="text-center muted py-4">Loading documents...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 4: MCP SERVERS CATALOG
+           ================================================================ -->
+      <section id="mcpView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Model Context Protocol (MCP) Catalog</h1>
+            <p class="panel-sub">Connected MCP tool servers, live tool discovery, and runtime permission controls.</p>
+          </div>
+        </div>
+
+        <div id="mcpServerCards" class="server-cards-grid"></div>
+
+        <!-- Discovered Tools Catalog -->
+        <div class="card mt-4">
+          <div class="card-header-flex">
+            <div>
+              <h2 class="card-title">Discovered Tool Definitions</h2>
+              <p class="card-sub">Tools dynamically exposed by connected MCP servers conforming to the MCP specification.</p>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="loadMCPView()">Refresh Tools</button>
+          </div>
+
+          <div class="table-container mt-3">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tool Name</th>
+                  <th>MCP Server</th>
+                  <th>Description</th>
+                  <th>Parameters Schema</th>
+                </tr>
+              </thead>
+              <tbody id="mcpToolsBody">
+                <tr><td colspan="4" class="text-center muted py-4">Loading discovered tools...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Interactive Tool Execution Tester -->
+        <div class="card mt-4">
+          <h2 class="card-title">Interactive Tool Tester</h2>
+          <p class="card-sub">Execute a tool directly against an MCP server to inspect raw JSON output and test error handling.</p>
+
+          <div class="tool-tester-grid mt-3">
+            <div class="form-group">
+              <label class="form-label" for="testerToolSelect">Select Tool</label>
+              <select id="testerToolSelect" class="form-select" onchange="onTesterToolChange()"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="testerArgsInput">Arguments (JSON)</label>
+              <input type="text" id="testerArgsInput" class="form-input font-mono" value='{"customer_id": "ABC"}'>
+            </div>
+            <button class="btn btn-primary self-end" onclick="executeToolTest()">Invoke Tool</button>
+          </div>
+
+          <div id="testerResultContainer" class="mt-3" style="display:none;">
+            <div class="card-header-flex mb-1">
+              <span class="muted text-xs">Response Payload:</span>
+              <span id="testerDuration" class="font-mono text-xs muted">0ms</span>
+            </div>
+            <pre id="testerResultJson" class="code-block"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 5: MEMORY INSPECTOR
+           ================================================================ -->
+      <section id="memoryView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Memory Inspector</h1>
+            <p class="panel-sub">Dual-tier memory inspection: Short-term conversation dialogues and persistent semantic memories.</p>
+          </div>
+        </div>
+
+        <div class="memory-grid">
+          <!-- Short-Term Memory -->
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2 class="card-title">Short-Term Memory</h2>
+                <p class="card-sub">Sliding window of dialogue turns per conversation ID.</p>
+              </div>
+              <button class="btn btn-sm btn-outline" onclick="loadConversationsList()">Refresh</button>
+            </div>
+
+            <div class="form-group mt-3">
+              <label class="form-label" for="memoryConvSelect">Active Conversation</label>
+              <select id="memoryConvSelect" class="form-select" onchange="loadConversationMessages()"></select>
+            </div>
+
+            <div id="memoryDialogueList" class="dialogue-list mt-3">
+              <p class="muted text-xs text-center py-4">Select a conversation session to view messages.</p>
+            </div>
+
+            <button id="clearConvBtn" class="btn btn-sm btn-danger mt-3" onclick="clearSelectedConversation()" style="display:none;">
+              Clear Conversation History
+            </button>
+          </div>
+
+          <!-- Long-Term Memory -->
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h2 class="card-title">Long-Term Semantic Facts</h2>
+                <p class="card-sub">Persistent preferences, account facts, and cross-session knowledge.</p>
+              </div>
+              <button class="btn btn-sm btn-outline" onclick="loadLongTermMemories()">Refresh</button>
+            </div>
+
+            <!-- Search -->
+            <div class="form-group mt-3">
+              <input type="text" id="memorySearchInput" class="form-input" placeholder="Search stored facts..." oninput="filterMemories()">
+            </div>
+
+            <div id="longTermMemoriesList" class="memories-list mt-3">
+              <p class="muted text-xs text-center py-4">Loading long-term facts...</p>
+            </div>
+
+            <!-- Add Fact Form -->
+            <div class="spec-divider mt-4"></div>
+            <h3 class="card-title mt-3">Add Semantic Memory Fact</h3>
+            <form id="addMemoryForm" class="mt-2" onsubmit="handleAddMemory(event)">
+              <div class="form-group">
+                <label class="form-label" for="addMemEntity">Entity Key</label>
+                <input type="text" id="addMemEntity" class="form-input font-mono" value="customer:ABC" placeholder="e.g. customer:ABC">
+              </div>
+              <div class="form-group mt-2">
+                <label class="form-label" for="addMemFact">Fact / Preference</label>
+                <input type="text" id="addMemFact" class="form-input" placeholder="e.g. Customer prefers quarterly invoicing" required>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm mt-2">Save Memory Fact</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 6: EXECUTIONS LOG
+           ================================================================ -->
+      <section id="executionsView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Execution Audit Logs</h1>
+            <p class="panel-sub">Complete history of all agent workflows executed on the platform with step durations and prompt audit records.</p>
+          </div>
+          <button class="btn btn-outline" onclick="loadExecutionsView()">Refresh Log</button>
+        </div>
+
+        <div class="card mt-2">
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Execution ID</th>
+                  <th>Agent</th>
+                  <th>User Query</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Timestamp</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="executionsTableBody">
+                <tr><td colspan="7" class="text-center muted py-4">Loading executions...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           VIEW 7: SETTINGS & OPERATIONS
+           ================================================================ -->
+      <section id="settingsView" class="view-panel">
+        <div class="panel-header">
+          <div>
+            <h1 class="panel-title">Platform Settings &amp; Diagnostics</h1>
+            <p class="panel-sub">Environment settings, active data modes, and diagnostic configurations.</p>
+          </div>
+          <button class="btn btn-primary" onclick="loadSettingsView()">Run Diagnostic Check</button>
+        </div>
+
+        <!-- Mode Switcher Card -->
+        <div class="card mb-4">
+          <div class="card-header-flex">
+            <div>
+              <h2 class="card-title">Environment &amp; Data Mode</h2>
+              <p class="card-sub">Switch between Demo Mode (loads external fixtures) and Real Mode (strict empty/configured state).</p>
+            </div>
+            <span id="settingsModeBadge" class="env-pill env-demo">DEMO MODE</span>
+          </div>
+
+          <div class="flex gap-3 mt-3 items-center">
+            <button id="toggleModeBtn" class="btn btn-outline" onclick="togglePlatformMode()">Switch to Real Mode</button>
+            <button class="btn btn-outline" onclick="reloadDemoFixtures()">Reload External Demo Data</button>
+            <button class="btn btn-danger btn-sm" onclick="clearPlatformData()">Clear All Data (Test Empty State)</button>
+          </div>
+        </div>
+
+        <!-- Architecture Specifications Card -->
+        <div class="card mb-4">
+          <h2 class="card-title mb-2">Platform Specifications</h2>
+          <div class="inspector-grid">
+            <div class="inspector-item">
+              <span class="muted text-xs">Orchestration Framework:</span>
+              <span class="font-mono text-xs">LlamaIndex Workflows (Event-Driven Async)</span>
+            </div>
+            <div class="inspector-item">
+              <span class="muted text-xs">Primary LLM Provider:</span>
+              <span class="font-mono text-xs">Groq API (llama-3.3-70b-versatile)</span>
+            </div>
+            <div class="inspector-item">
+              <span class="muted text-xs">Vector Index:</span>
+              <span class="font-mono text-xs">FAISS (IndexFlatL2)</span>
+            </div>
+            <div class="inspector-item">
+              <span class="muted text-xs">Protocol Standard:</span>
+              <span class="font-mono text-xs">Model Context Protocol (MCP)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Component Health Grid -->
+        <div id="settingsComponentsGrid" class="health-grid"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: AGENT CONFIGURATION VIEWER
+       ==================================================================== -->
+  <div id="agentConfigModal" class="modal-overlay" style="display:none;" onclick="closeModalOnOverlay(event, 'agentConfigModal')">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">Agent Configuration: <span id="modalAgentName" class="font-mono text-sm text-primary"></span></h3>
+          <p id="modalAgentMeta" class="modal-sub"></p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('agentConfigModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-nav mb-3">
+          <button class="tab-btn active" data-cfgtab="cfgSystemPrompt" onclick="switchConfigTab('cfgSystemPrompt')">System Prompt</button>
+          <button class="tab-btn" data-cfgtab="cfgPlaybook" onclick="switchConfigTab('cfgPlaybook')">Playbook Instructions</button>
+          <button class="tab-btn" data-cfgtab="cfgTools" onclick="switchConfigTab('cfgTools')">Allowed Tools &amp; Permissions</button>
+          <button class="tab-btn" data-cfgtab="cfgRag" onclick="switchConfigTab('cfgRag')">RAG &amp; Memory Settings</button>
+        </div>
+        <div id="cfgSystemPrompt" class="modal-tab-pane active">
+          <pre id="modalAgentPrompt" class="code-block"></pre>
+        </div>
+        <div id="cfgPlaybook" class="modal-tab-pane">
+          <pre id="modalAgentPlaybook" class="code-block"></pre>
+        </div>
+        <div id="cfgTools" class="modal-tab-pane">
+          <div id="modalAgentToolsList"></div>
+        </div>
+        <div id="cfgRag" class="modal-tab-pane">
+          <div id="modalAgentRagDetails"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: INSPECT CHUNKS
+       ==================================================================== -->
+  <div id="chunksModal" class="modal-overlay" style="display:none;" onclick="closeModalOnOverlay(event, 'chunksModal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalChunkTitle" class="modal-title">Document Chunks Inspection</h3>
+          <p id="modalChunkSub" class="modal-sub">-</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('chunksModal')">&times;</button>
+      </div>
+      <div id="modalChunksContent" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL: EXECUTION DETAIL DRAWER
+       ==================================================================== -->
+  <div id="executionModal" class="modal-overlay" style="display:none;" onclick="closeModalOnOverlay(event, 'executionModal')">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">Execution Details: <span id="modalExecId" class="font-mono text-sm"></span></h3>
+          <p id="modalExecMeta" class="modal-sub"></p>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('executionModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-nav mb-3">
+          <button class="tab-btn active" data-modtab="modTimeline" onclick="switchModalTab('modTimeline')">Timeline</button>
+          <button class="tab-btn" data-modtab="modAnswer" onclick="switchModalTab('modAnswer')">Answer &amp; Sources</button>
+          <button class="tab-btn" data-modtab="modPrompt" onclick="switchModalTab('modPrompt')">Prompt Audit Log</button>
+        </div>
+        <div id="modTimeline" class="modal-tab-pane active">
+          <div id="modalTimelineContent" class="timeline-tree"></div>
+        </div>
+        <div id="modAnswer" class="modal-tab-pane">
+          <h4 class="text-sm font-semibold mb-2">Final Synthesized Answer</h4>
+          <div id="modalAnswerContent" class="answer-content"></div>
+        </div>
+        <div id="modPrompt" class="modal-tab-pane">
+          <pre id="modalPromptContent" class="code-block"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

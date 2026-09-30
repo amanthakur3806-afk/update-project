@@ -1,0 +1,87 @@
+"""
+FastAPI Application Entry Point
+Nexus AI: Orchestrated Multi-MCP AI Agent Operations Platform
+"""
+from pathlib import Path
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import settings
+from app.api.agents import router as agents_router
+from app.api.executions import router as executions_router
+from app.api.knowledge import router as knowledge_router
+from app.api.mcp import router as mcp_router
+from app.api.data import router as data_router
+from app.api.system import router as system_router
+from app.api.memory import router as memory_router
+from app.seed_data import seed_database
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Ensure database, external fixtures, and vector store are ready
+    seed_database()
+    yield
+
+
+app = FastAPI(
+    title="Nexus AI: Multi-MCP Agent Operations Platform",
+    description="""
+Production-grade AI agent operations platform coordinating multiple Model Context Protocol (MCP) servers,
+LlamaIndex Workflows, dynamic agent-level permissions, FAISS vector search, and dual-tier memory.
+    """,
+    version="2.0.0",
+    lifespan=lifespan
+)
+
+# Enable CORS for open API usage
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount Static Files
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Include API Routers
+app.include_router(system_router)
+app.include_router(agents_router)
+app.include_router(executions_router)
+app.include_router(knowledge_router)
+app.include_router(mcp_router)
+app.include_router(data_router)
+app.include_router(memory_router)
+
+
+@app.get("/", include_in_schema=False)
+def serve_dashboard():
+    """Serve the Web Control Center UI."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health", tags=["Health"])
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "Nexus AI Multi-MCP Agent Operations Platform",
+        "version": "2.0.0",
+        "demo_mode": settings.DEMO_MODE
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, reload=True)

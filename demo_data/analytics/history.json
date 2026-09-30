@@ -1,0 +1,74 @@
+{
+  "ABC": [
+    {
+      "date": "2026-08-15",
+      "event_type": "Capacity Upgrade",
+      "details": "Provisioned additional dedicated telemetry broker partition.",
+      "impact": "Throughput increased by 35%"
+    },
+    {
+      "date": "2026-07-28",
+      "event_type": "Quarterly Business Review (QBR)",
+      "details": "Executive QBR held with VP of Logistics; renewed commitment to multi-year roadmap.",
+      "satisfaction": "Very High"
+    },
+    {
+      "date": "2026-06-10",
+      "event_type": "Incident Resolved",
+      "details": "Sev-3 minor ingestion delay resolved within 22 minutes under Platinum SLA.",
+      "ticket_id": "INC-88912"
+    }
+  ],
+  "XYZ": [
+    {
+      "date": "2026-08-01",
+      "event_type": "Rate Limit Breach Warning",
+      "details": "Spike in product catalog queries during flash sale triggered automated 429 warning.",
+      "ticket_id": "INC-90114"
+    },
+    {
+      "date": "2026-05-18",
+      "event_type": "Annual Renewal Negotiation",
+      "details": "Account requested pricing quote for next tier expansion.",
+      "status": "Pending"
+    }
+  ],
+  "ACME": [
+    {
+      "date": "2026-09-02",
+      "event_type": "Annual Contract Renewal",
+      "details": "Renewed 3-year enterprise contract with 15% expanded capacity allowance.",
+      "status": "Signed"
+    },
+    {
+      "date": "2026-07-14",
+      "event_type": "Security Audit Passed",
+      "details": "Annual SOC2 and ISO27001 third-party validation completed.",
+      "status": "Approved"
+    }
+  ],
+  "NOVA": [
+    {
+      "date": "2026-08-20",
+      "event_type": "Audit Log Certification",
+      "details": "Quarterly HIPAA compliance audit confirmed zero unencrypted logs.",
+      "status": "Certified"
+    }
+  ],
+  "FINTECH": [
+    {
+      "date": "2026-09-10",
+      "event_type": "Failover Drill Executed",
+      "details": "Active-active multi-region failover completed in 1.8 seconds with zero data loss.",
+      "status": "Passed"
+    }
+  ],
+  "CLOUD": [
+    {
+      "date": "2026-08-25",
+      "event_type": "Payment Method Updated",
+      "details": "Monthly credit card charge processed for developer tier.",
+      "status": "Completed"
+    }
+  ]
+}

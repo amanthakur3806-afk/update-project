@@ -1,0 +1,26 @@
+[
+  {
+    "entity_key": "customer:ABC",
+    "memory_type": "preference",
+    "content": "Customer ABC prefers email communication for all technical alerts and quarterly billing notifications.",
+    "importance_score": 1.5
+  },
+  {
+    "entity_key": "customer:ABC",
+    "memory_type": "long_term_fact",
+    "content": "Customer ABC is covered under Platinum Mission-Critical SLA requiring < 15 min response time for Sev-1 incidents.",
+    "importance_score": 1.2
+  },
+  {
+    "entity_key": "customer:ABC",
+    "memory_type": "long_term_fact",
+    "content": "Customer ABC completed global telemetry migration in Q3 2024 and maintains automated seasonal burst limits up to 120%.",
+    "importance_score": 1.0
+  },
+  {
+    "entity_key": "customer:XYZ",
+    "memory_type": "preference",
+    "content": "Customer XYZ prefers Slack webhook alerts for rate limit warnings.",
+    "importance_score": 1.0
+  }
+]

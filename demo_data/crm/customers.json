@@ -1,0 +1,111 @@
+{
+  "ABC": {
+    "customer_id": "ABC",
+    "company_name": "ABC Global Logistics & Supply Inc.",
+    "tier": "Enterprise Tier 1",
+    "industry": "Logistics & Supply Chain",
+    "status": "Active",
+    "account_executive": "Sarah Jenkins",
+    "technical_contact": "Dr. Marcus Vance (marcus.vance@abc-logistics.example.com)",
+    "contract_value": "$450,000 / year",
+    "contract_start": "2024-01-15",
+    "contract_renewal": "2027-01-15",
+    "sla_tier": "Platinum Mission-Critical",
+    "sla_response_time": "< 15 minutes for Sev-1 incidents",
+    "notes": [
+      "Completed global telemetry migration in Q3 2024.",
+      "Quarterly billing schedule active per client request.",
+      "Seasonal burst allowance auto-scales to 120% of base capacity."
+    ]
+  },
+  "XYZ": {
+    "customer_id": "XYZ",
+    "company_name": "XYZ Retail Innovations Ltd.",
+    "tier": "Growth Tier 2",
+    "industry": "E-Commerce",
+    "status": "Active",
+    "account_executive": "David Kim",
+    "technical_contact": "Elena Rostova (elena.rostova@xyzretail.example.com)",
+    "contract_value": "$120,000 / year",
+    "contract_start": "2024-06-01",
+    "contract_renewal": "2025-06-01",
+    "sla_tier": "Gold Standard",
+    "sla_response_time": "< 4 hours for Sev-1 incidents",
+    "notes": [
+      "Requested rate limit review for upcoming flash sale.",
+      "Evaluating migration to dedicated telemetry broker in Q1 2027."
+    ]
+  },
+  "ACME": {
+    "customer_id": "ACME",
+    "company_name": "Acme Industrial Robotics Corp.",
+    "tier": "Enterprise Tier 1",
+    "industry": "Advanced Manufacturing",
+    "status": "Active",
+    "account_executive": "James Sterling",
+    "technical_contact": "Dr. Clara Wu (clara.wu@acme-robotics.example.com)",
+    "contract_value": "$620,000 / year",
+    "contract_start": "2023-09-01",
+    "contract_renewal": "2026-09-01",
+    "sla_tier": "Platinum Mission-Critical",
+    "sla_response_time": "< 15 minutes for Sev-1 incidents",
+    "notes": [
+      "Deployed 85 edge controller nodes with real-time stream ingestion.",
+      "Telemetry encryption keys rotated every 30 days."
+    ]
+  },
+  "NOVA": {
+    "customer_id": "NOVA",
+    "company_name": "Nova Health Systems",
+    "tier": "Healthcare Enterprise",
+    "industry": "Healthcare & Life Sciences",
+    "status": "Active",
+    "account_executive": "Sarah Jenkins",
+    "technical_contact": "Dr. Aris Thorne (aris.thorne@novahealth.example.com)",
+    "contract_value": "$380,000 / year",
+    "contract_start": "2024-03-01",
+    "contract_renewal": "2026-03-01",
+    "sla_tier": "Platinum Mission-Critical",
+    "sla_response_time": "< 15 minutes for Sev-1 incidents",
+    "notes": [
+      "Strict HIPAA compliance and dedicated audit partition required.",
+      "Zero external telemetry logging policy enforced."
+    ]
+  },
+  "FINTECH": {
+    "customer_id": "FINTECH",
+    "company_name": "Apex Financial Solutions LLC",
+    "tier": "Financial Services Tier 1",
+    "industry": "Banking & Fintech",
+    "status": "Active",
+    "account_executive": "Rachel Lin",
+    "technical_contact": "Vikram Seth (vikram.seth@apexfin.example.com)",
+    "contract_value": "$540,000 / year",
+    "contract_start": "2023-11-15",
+    "contract_renewal": "2026-11-15",
+    "sla_tier": "Ultra-Low Latency Platinum",
+    "sla_response_time": "< 10 minutes for Sev-1 incidents",
+    "notes": [
+      "PCI-DSS audit completed with zero exceptions.",
+      "Multi-region active-active disaster recovery configured."
+    ]
+  },
+  "CLOUD": {
+    "customer_id": "CLOUD",
+    "company_name": "CloudScale Microservices Inc.",
+    "tier": "Startup Tier 3",
+    "industry": "Developer Tools",
+    "status": "Active",
+    "account_executive": "David Kim",
+    "technical_contact": "Liam O'Connor (liam@cloudscale.example.com)",
+    "contract_value": "$48,000 / year",
+    "contract_start": "2024-08-01",
+    "contract_renewal": "2025-08-01",
+    "sla_tier": "Standard Support",
+    "sla_response_time": "< 8 hours for Sev-1 incidents",
+    "notes": [
+      "Self-service onboarding completed.",
+      "Community forum support tier."
+    ]
+  }
+}
