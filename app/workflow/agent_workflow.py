@@ -25,6 +25,7 @@ from app.rag.vector_store import vector_store
 from app.memory.memory_manager import memory_manager
 from app.workflow.subagent import TemporaryResearchSubAgent
 from app.workflow.llm_provider import llm_provider
+from app.services.progress import progress_bus
 from app.services.query_classifier import query_classifier
 from app.workflow.events import (
     AgentLoadedEvent,
@@ -141,10 +142,17 @@ class AgentOrchestratorWorkflow(Workflow):
         query = ev.get("query")
         conversation_id = ev.get("conversation_id")
         execution_id = ev.get("execution_id", f"exec_{uuid.uuid4().hex[:12]}")
+        await progress_bus.publish(execution_id, "Loading the selected agent and its permissions", "agent")
 
         # Run Smart Query Classification
         classification = query_classifier.classify(query)
         classification_dict = classification.model_dump()
+        entity_text = ", ".join(classification.target_entities) or "no named entities"
+        await progress_bus.publish(
+            execution_id,
+            f"Classified as {classification.query_type}; targets: {entity_text}",
+            "classification"
+        )
 
         db: Session = SessionLocal()
         try:
@@ -213,6 +221,7 @@ class AgentOrchestratorWorkflow(Workflow):
     @step
     async def step_load_memory_and_rag(self, ev: AgentLoadedEvent) -> MemoryAndRAGLoadedEvent:
         """Step 2: Retrieve short-term dialogue, semantic long-term memory, and FAISS RAG context."""
+        await progress_bus.publish(ev.execution_id, "Retrieving conversation memory and relevant knowledge", "memory")
         t0 = time.time()
         agent_cfg = ev.agent_config
         db: Session = SessionLocal()
@@ -243,13 +252,20 @@ class AgentOrchestratorWorkflow(Workflow):
 
             # 2. Knowledge Base RAG via FAISS
             wf_cfg = agent_cfg.get("workflow_configuration", {})
+            target_kb = wf_cfg.get("knowledge_base", "customer_docs")
             if wf_cfg.get("rag_enabled", True):
-                target_kb = wf_cfg.get("knowledge_base", "customer_docs")
                 retrieved_chunks = _retrieve_rag_chunks(
                     query=ev.query,
                     kb_id=target_kb,
                     top_k=8
                 )
+
+            await progress_bus.publish(
+                ev.execution_id,
+                f"Retrieved {len(retrieved_chunks)} knowledge chunks from {target_kb}; "
+                f"memory: {len(short_term_history)} recent turns and {len(long_term_facts)} long-term facts",
+                "retrieval"
+            )
 
             # Record step in trace
             step_rec = ExecutionStep(
@@ -287,6 +303,7 @@ class AgentOrchestratorWorkflow(Workflow):
     @step
     async def step_plan_tools(self, ev: MemoryAndRAGLoadedEvent) -> ToolPlanGeneratedEvent:
         """Step 3: Tool Planning across registered MCP servers."""
+        await progress_bus.publish(ev.execution_id, "Planning the next actions from the agent configuration", "planning")
         t0 = time.time()
         agent_cfg = ev.agent_config
         allowed_tools = agent_cfg.get("allowed_tools", [])
@@ -299,6 +316,12 @@ class AgentOrchestratorWorkflow(Workflow):
             query=ev.query,
             available_tools=permitted_tools,
             knowledge_chunks=ev.retrieved_chunks
+        )
+        planned_names = ", ".join(tool["tool_name"] for tool in planned_tools) or "no MCP tools required"
+        await progress_bus.publish(
+            ev.execution_id,
+            f"Planned {len(planned_tools)} tool call(s): {planned_names}",
+            "planning"
         )
 
         db: Session = SessionLocal()
@@ -336,6 +359,8 @@ class AgentOrchestratorWorkflow(Workflow):
         agent_cfg = ev.agent_config
         allowed_tools = agent_cfg.get("allowed_tools", [])
         tool_results = []
+        completed_plan_ids = set()
+        failed_plan_ids = set()
         db: Session = SessionLocal()
 
         current_step_num = 4
@@ -344,6 +369,21 @@ class AgentOrchestratorWorkflow(Workflow):
                 t0 = time.time()
                 tool_name = plan["tool_name"]
                 arguments = plan.get("arguments", {})
+                plan_id = plan.get("id", f"step_{current_step_num}")
+                dependencies = plan.get("depends_on", [])
+                blocked_dependencies = [dep for dep in dependencies if dep in failed_plan_ids]
+                if blocked_dependencies:
+                    err_msg = f"Skipped {tool_name}: prerequisite step(s) failed: {blocked_dependencies}"
+                    db.add(ExecutionStep(
+                        execution_id=ev.execution_id, step_number=current_step_num,
+                        step_name=f"dependency_blocked:{tool_name}", tool_name=tool_name,
+                        input_payload=arguments, output_payload={"error": err_msg},
+                        duration_ms=0, status="skipped", error_message=err_msg))
+                    db.commit()
+                    failed_plan_ids.add(plan_id)
+                    current_step_num += 1
+                    continue
+                await progress_bus.publish(ev.execution_id, f"Calling MCP tool: {tool_name}", "mcp")
 
                 # Permission Check
                 is_permitted = mcp_client_manager.check_tool_permission(tool_name, allowed_tools)
@@ -362,7 +402,13 @@ class AgentOrchestratorWorkflow(Workflow):
                     )
                     db.add(step_rec)
                     db.commit()
+                    await progress_bus.publish(
+                        ev.execution_id,
+                        f"Blocked unauthorized tool {tool_name}",
+                        "permission"
+                    )
                     current_step_num += 1
+                    failed_plan_ids.add(plan_id)
                     continue
 
                 # Multi-MCP Execution
@@ -386,6 +432,17 @@ class AgentOrchestratorWorkflow(Workflow):
                 )
                 db.add(step_rec)
                 db.commit()
+                result_state = "completed" if res.get("success") else "failed"
+                if res.get("success"):
+                    completed_plan_ids.add(plan_id)
+                else:
+                    failed_plan_ids.add(plan_id)
+                detail = res.get("error") or "result received"
+                await progress_bus.publish(
+                    ev.execution_id,
+                    f"{tool_name} {result_state} in {res.get('duration_ms', 0.0)} ms ({detail})",
+                    "tool"
+                )
                 current_step_num += 1
 
         finally:
@@ -407,6 +464,7 @@ class AgentOrchestratorWorkflow(Workflow):
     @step
     async def step_subagent_and_context(self, ev: ToolsExecutedEvent) -> ContextCondensedEvent:
         """Step 6: Temporary Sub-Agent Result Condensation & Context Management."""
+        await progress_bus.publish(ev.execution_id, "Combining MCP results with retrieved context", "context")
         t0 = time.time()
         agent_cfg = ev.agent_config
         wf_cfg = agent_cfg.get("workflow_configuration", {})
@@ -422,6 +480,13 @@ class AgentOrchestratorWorkflow(Workflow):
             condensed_summary = subagent_res["condensed_summary"]
         else:
             condensed_summary = "\n".join([f"Tool {r['tool_name']}: {r.get('result')}" for r in ev.tool_results])
+
+        await progress_bus.publish(
+            ev.execution_id,
+            f"Context ready: {len(ev.tool_results)} tool result(s), "
+            f"{len(ev.retrieved_chunks)} knowledge chunk(s), {len(condensed_summary)} summary characters",
+            "context"
+        )
 
         db: Session = SessionLocal()
         try:
@@ -459,6 +524,12 @@ class AgentOrchestratorWorkflow(Workflow):
         """Step 7: LLM Synthesis, final_prompt.txt Audit Logging, DB State Persistence, and StopEvent."""
         t0 = time.time()
         agent_cfg = ev.agent_config
+        await progress_bus.publish(
+            ev.execution_id,
+            f"Synthesizing from {len(ev.raw_tool_results)} tool result(s) and "
+            f"{len(ev.retrieved_chunks)} knowledge chunk(s)",
+            "synthesis"
+        )
 
         # 1. Synthesize final answer
         final_answer = llm_provider.synthesize_response(

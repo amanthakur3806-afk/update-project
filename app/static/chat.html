@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nexus AI</title><link rel="stylesheet" href="/static/chat.css?v=4"><link rel="stylesheet" href="/static/chat-live.css?v=5"><link rel="stylesheet" href="/static/chat-format.css?v=1"><link rel="stylesheet" href="/static/chat-polish.css?v=1"><link rel="stylesheet" href="/static/chat-scroll.css?v=1">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">N</span><span><strong>Nexus AI</strong><small>Agent workspace</small></span></a>
+      <div class="topbar-actions"><span id="connectionStatus" class="status-pill"><i></i> Connecting</span><button class="icon-button" id="refreshButton" title="Refresh agents and MCP servers">↻</button></div>
+    </header>
+    <section class="workspace">
+      <aside class="agent-rail">
+        <div class="rail-heading"><div><span class="eyebrow">Workspace</span><h1>Agents</h1></div><span id="agentCount" class="count-badge">0</span></div>
+        <p class="rail-copy">Choose an agent managed by your backend. New agents appear here after refresh.</p>
+        <label class="sr-only" for="agentSelect">Select an agent</label><select id="agentSelect" class="agent-select"></select>
+        <div id="agentDetails" class="agent-details"></div>
+        <div class="rail-footer"><div class="mini-stat"><span id="mcpCount">0</span><small>MCP servers</small></div><div class="mini-stat"><span id="toolCount">0</span><small>Available tools</small></div></div>
+      </aside>
+      <section class="chat-panel">
+        <div class="chat-header"><div><span class="eyebrow">Conversation</span><h2 id="chatTitle">Select an agent to start</h2></div><button id="newChatButton" class="button secondary">New chat</button></div>
+        <div id="messageList" class="message-list"><div class="welcome-card"><div class="welcome-icon">✦</div><h3>Ask your agent anything</h3><p>Select an agent on the left, then send a message. The selected agent uses its configured memory, knowledge, and MCP permissions.</p></div></div>
+        <div id="thoughtPanel" class="thought-panel" hidden><div class="thought-title"><span class="thought-heading"><span class="pulse"></span>Live activity</span><button id="thoughtToggle" class="thought-toggle" type="button" aria-expanded="true" title="Minimize live activity">Minimize</button></div><div id="thoughtList"></div></div>
+        <div id="typingIndicator" class="typing" hidden><span></span><span></span><span></span><em>Agent is working</em></div>
+        <form id="chatForm" class="composer"><textarea id="messageInput" rows="1" placeholder="Message your agent..." disabled></textarea><button id="sendButton" class="send-button" type="submit" disabled aria-label="Send message">↑</button><div class="composer-meta"><span id="conversationLabel">New conversation</span><span>Enter to send · Shift+Enter for a new line</span></div></form>
+      </section>
+    </section>
+  </main>
+  <script src="/static/chat-rich.js?v=3"></script>
+</body>
+</html>

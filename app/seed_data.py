@@ -5,7 +5,6 @@ Initializes database schema, seeds dynamic agent configurations with categories,
 registers MCP servers, populates long-term memories, and handles Demo Mode
 data ingestion.
 """
-import json
 import sys
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -15,10 +14,8 @@ from app.database import engine, SessionLocal, Base
 from app.models.agent import Agent, AgentTool
 from app.models.mcp import MCPServer
 from app.models.knowledge import KnowledgeBase, Document
-from app.models.memory import Memory
 from app.rag.ingest import ingest_knowledge_base
 from app.rag.vector_store import vector_store
-from app.services.data_service import data_service
 
 CUSTOMER_RESEARCH_PLAYBOOK = """# Customer Research Playbook
 ## 1. Role & Responsibilities
@@ -81,6 +78,23 @@ def seed_database():
                 server_url="app/mcp/servers/analytics_server.py",
                 transport="inprocess",
                 configuration={"capabilities": ["get_customer_metrics", "get_customer_history"]}
+            ),
+            MCPServer(
+                server_id="operations_mcp",
+                server_name="Customer Operations MCP Server",
+                server_url="app/mcp/servers/operations_server.py",
+                transport="inprocess",
+                configuration={
+                    "capabilities": [
+                        "Operations.get_customer",
+                        "Operations.update_customer_status",
+                        "Operations.add_customer_note",
+                        "Operations.create_follow_up_task",
+                        "Operations.get_audit_history",
+                    ],
+                    "implementation_status": "ready",
+                },
+                enabled=True,
             )
         ]
         for s in servers:
@@ -191,34 +205,64 @@ def seed_database():
 
         db.commit()
 
-        # 3. Persistent Long-Term Memories (Loaded from demo_data fixtures when DEMO_MODE is True)
-        if settings.DEMO_MODE:
-            memories_file = Path("demo_data/memory/memories.json")
-            if memories_file.exists():
-                try:
-                    with open(memories_file, "r", encoding="utf-8") as f:
-                        memories_data = json.load(f)
-                    for item in memories_data:
-                        existing = db.query(Memory).filter(
-                            Memory.entity_key == item.get("entity_key"),
-                            Memory.content == item.get("content")
-                        ).first()
-                        if not existing:
-                            db.add(Memory(
-                                entity_key=item.get("entity_key"),
-                                memory_type=item.get("memory_type", "fact"),
-                                content=item.get("content"),
-                                importance_score=item.get("importance_score", 1.0)
-                            ))
-                    db.commit()
-                except Exception as e:
-                    print(f"Warning: Could not load demo memories: {e}")
+        # Future write-capable agent. It remains disabled until the
+        # operations MCP handlers and confirmation flow are implemented.
+        operations_agent = db.query(Agent).filter(
+            Agent.agent_id == "customer_operations_agent"
+        ).first()
+        if not operations_agent:
+            operations_agent = Agent(
+                agent_id="customer_operations_agent",
+                agent_name="Customer Operations Agent",
+                category="Operations",
+                description="Future agent for confirmed customer status, note, and follow-up task changes.",
+                system_prompt=(
+                    "You are a customer operations assistant. Prepare proposed database changes, "
+                    "request confirmation, and execute only approved operations MCP tools."
+                ),
+                playbook=(
+                    "Read customer context first. Never write without explicit confirmation. "
+                    "Every write must be transactional and audited."
+                ),
+                model="gpt-4o-mini",
+                temperature=0.0,
+                memory_configuration={"short_term": True, "long_term": False},
+                workflow_configuration={
+                    "max_iterations": 5,
+                    "enable_subagents": False,
+                    "rag_enabled": False,
+                    "knowledge_base": "customer_docs",
+                },
+                enabled=True,
+            )
+            db.add(operations_agent)
+            db.flush()
+            for tool_name in [
+                "Operations.get_customer",
+                "Operations.update_customer_status",
+                "Operations.add_customer_note",
+                "Operations.create_follow_up_task",
+                "Operations.get_audit_history",
+            ]:
+                db.add(AgentTool(
+                    agent_id=operations_agent.agent_id,
+                    tool_name=tool_name,
+                    server_id="operations_mcp",
+                    enabled=True,
+                ))
 
-        # 4. Load External Demo Fixtures into DataService
-        if settings.DEMO_MODE:
-            data_service.load_demo_data()
+        # Upgrade existing scaffold records in copied databases as well.
+        operations_agent.enabled = True
+        operations_agent.agent_name = "Customer Operations Agent"
+        operations_agent.description = "Executes permissioned customer status, note, and follow-up operations with audit history."
+        for operation_tool in db.query(AgentTool).filter(AgentTool.agent_id == operations_agent.agent_id).all():
+            operation_tool.enabled = True
+        operations_server = db.query(MCPServer).filter(MCPServer.server_id == "operations_mcp").first()
+        if operations_server:
+            operations_server.enabled = True
+        db.commit()
 
-        # 5. Ingest Knowledge Bases into SQL and FAISS
+        # Ingest Knowledge Bases into SQL and FAISS
         kb_dirs = [
             ("customer_docs", "Customer Documents", settings.KNOWLEDGE_BASE_DIR / "customer_docs"),
             ("company_policies", "Company Policies", settings.KNOWLEDGE_BASE_DIR / "company_policies"),
@@ -274,7 +318,6 @@ def seed_database():
         print("  [+] Knowledge Bases:3 Active (customer_docs, company_policies, technical_docs)")
         print(f"  [+] Documents:      {doc_count} Files Indexed")
         print(f"  [+] Vectors:        {vector_store.total_vectors} Chunks in FAISS")
-        print(f"  [+] Environment:    {'DEMO MODE (External demo_data/ fixtures)' if settings.DEMO_MODE else 'PRODUCTION MODE'}")
         print(f"  [+] LLM Provider:   {llm_desc}")
         print("=" * 65)
 

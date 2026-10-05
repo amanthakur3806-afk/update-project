@@ -79,6 +79,21 @@ class TemporaryResearchSubAgent:
                     else:
                         extracted_facts.append(f"Analytics History: No historical events recorded.")
 
+            elif "operations" in tool_name.lower():
+                if res.get("found") is False or res.get("success") is False:
+                    extracted_facts.append(
+                        f"Operations {tool_name}: {res.get('error') or res.get('message', 'Customer was not found.') }"
+                    )
+                elif tool_name.lower().endswith("get_customer"):
+                    customer = res.get("customer", {})
+                    extracted_facts.append(
+                        f"Operations Customer Lookup: verified {customer.get('company_name', customer.get('customer_id', 'customer'))} "
+                        f"(ID: {customer.get('customer_id', 'unknown')})."
+                    )
+                else:
+                    details = ", ".join(f"{key}={value}" for key, value in res.items() if key not in {"success", "customer_id"})
+                    extracted_facts.append(f"Operation succeeded ({tool_name}) for customer {res.get('customer_id', 'unknown')}: {details}")
+
         condensed_text = "\n\n".join(extracted_facts) if extracted_facts else "No active tool data returned."
 
         return {

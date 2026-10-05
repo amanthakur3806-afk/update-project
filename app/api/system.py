@@ -55,8 +55,6 @@ def get_system_health(db: Session = Depends(get_db)):
 
     return {
         "status": "operational" if db_ok else "degraded",
-        "demo_mode": data_service.demo_mode,
-        "environment": "Demo Mode (External Fixtures)" if data_service.demo_mode else "Production Mode",
         "components": {
             "database": {
                 "status": "connected" if db_ok else "unreachable",
@@ -119,14 +117,4 @@ def get_observability_metrics(db: Session = Depends(get_db)):
         "knowledge_bases": total_kbs,
         "documents_indexed": total_docs,
         "total_vectors": vector_store.total_vectors
-    }
-
-
-@router.post("/mode", summary="Toggle Demo Mode vs Real Mode")
-def toggle_demo_mode(enabled: bool):
-    data_service.set_demo_mode(enabled)
-    return {
-        "success": True,
-        "demo_mode": data_service.demo_mode,
-        "message": f"Mode switched to {'DEMO MODE' if enabled else 'REAL / PRODUCTION MODE'}."
     }

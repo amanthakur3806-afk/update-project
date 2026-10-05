@@ -73,13 +73,44 @@ class LLMProvider:
         entities = classification.target_entities if classification.target_entities else ["ABC"]
         avail_names = [t["name"].lower() for t in available_tools]
 
+        # Write-capable operations are planned as a dependency chain.  A live
+        # customer read must succeed before any mutation is allowed to run.
+        operation_names = {name for name in avail_names if name.startswith("operations.")}
+        write_intent = any(word in query.lower() for word in
+                           ["update", "edit", "change", "set ", "add note", "note", "follow-up", "follow up", "task", "status"])
+        if operation_names and write_intent:
+            customer_id = entities[0]
+            planned.append({"tool_name": "Operations.get_customer",
+                            "arguments": {"customer_id": customer_id}, "id": "lookup_customer"})
+            q = query.lower()
+            status_match = re.search(
+                r"(?:status|set (?:it )?to|mark(?: it)? as)\s*(?:to\s*)?"
+                r"([a-z][a-z -]{1,24}?)(?:\s+and\s+(?:add|create)|\s+because|[,.!?]|$)", q
+            )
+            if "status" in q or "mark " in q or "set " in q:
+                status = status_match.group(1).strip(" .,!?\"") if status_match else "Active"
+                planned.append({"tool_name": "Operations.update_customer_status",
+                                "arguments": {"customer_id": customer_id, "status": status,
+                                               "reason": query}, "depends_on": ["lookup_customer"]})
+            if "note" in q:
+                note = query.split(":", 1)[1].strip() if ":" in query else query
+                planned.append({"tool_name": "Operations.add_customer_note",
+                                "arguments": {"customer_id": customer_id, "note": note},
+                                "depends_on": ["lookup_customer"]})
+            if "follow" in q or "task" in q:
+                title = query.split(":", 1)[1].strip() if ":" in query else "Customer follow-up"
+                planned.append({"tool_name": "Operations.create_follow_up_task",
+                                "arguments": {"customer_id": customer_id, "title": title},
+                                "depends_on": ["lookup_customer"]})
+            return planned
+
         for customer_id in entities:
             # CRM Tool Planning
             if any("crm.get_customer" in n or n == "get_customer" for n in avail_names):
                 if classification.requires_crm:
                     planned.append({
                         "tool_name": "CRM.get_customer",
-                        "arguments": {"customer_id": customer_id}
+                        "arguments": {"customer_id": customer_id}, "id": f"crm_{customer_id}"
                     })
 
             # Analytics Metrics Tool Planning
@@ -87,7 +118,8 @@ class LLMProvider:
                 if classification.requires_analytics or "metrics" in query.lower() or "arr" in query.lower() or "summary" in query.lower():
                     planned.append({
                         "tool_name": "Analytics.get_customer_metrics",
-                        "arguments": {"customer_id": customer_id}
+                        "arguments": {"customer_id": customer_id},
+                        "depends_on": [f"crm_{customer_id}"] if planned and planned[-1].get("id") == f"crm_{customer_id}" else []
                     })
 
             # Analytics History Tool Planning
@@ -95,7 +127,8 @@ class LLMProvider:
                 if any(k in query.lower() for k in ["history", "timeline", "past", "incident", "qbr", "recent", "month", "activity", "analyze", "dossier"]):
                     planned.append({
                         "tool_name": "Analytics.get_customer_history",
-                        "arguments": {"customer_id": customer_id, "months": 3}
+                        "arguments": {"customer_id": customer_id, "months": 3},
+                        "depends_on": [f"crm_{customer_id}"] if planned and planned[-1].get("id") == f"crm_{customer_id}" else []
                     })
 
         # CRM Search fallback if no specific customer entity found
@@ -199,6 +232,14 @@ class LLMProvider:
         lines.append("## Executive Summary & Customer Dossier")
         lines.append(f"**Agent**: {agent_name} | **Engine**: [OFFLINE GROUNDED ENGINE - NO API KEY CONFIGURED]")
         lines.append("> **Audit Status**: Verified via Multi-MCP Tool Execution & RAG Retrieval\n")
+
+        if "operation succeeded" in condensed_tool_summary.lower():
+            lines.append("### Operation Result")
+            for item in condensed_tool_summary.split("\n\n"):
+                if "operation succeeded" in item.lower() or "operations customer lookup" in item.lower():
+                    lines.append(f"- {item.strip()}")
+            lines.append("\nThe requested customer operation was completed and recorded in the operations audit log.")
+            return "\n".join(lines)
 
         has_verified = False
         verified_lines = []

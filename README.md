@@ -77,8 +77,7 @@ NEXUS AI CONSOLE (Simple View & Technical View)
                                         ▼
                                    DataService
                                         │
-                                   demo_data/
-                               (External Fixtures)
+                                   DataService
                                         │
                                         ▼
                                   LLM Provider
@@ -133,11 +132,6 @@ DATA         = external JSON / CSV / PDF / DOCX / database
 
 **Zero business data is hardcoded in Python.**
 - `crm_server.py` and `analytics_server.py` delegate 100% of data queries to `DataService`.
-- External demo fixtures live strictly in `demo_data/`:
-  - `demo_data/crm/customers.json`: 6 customer records (`ABC`, `XYZ`, `ACME`, `NOVA`, `FINTECH`, `CLOUD`)
-  - `demo_data/analytics/metrics.json`: ARR, MRR, churn risk, NPS, SLA compliance
-  - `demo_data/analytics/history.json`: QBRs, capacity upgrades, incident logs
-  - `demo_data/knowledge/`: Source documents for RAG
 
 ### Zero Silent Fallbacks Rule
 If customer `NON_EXISTENT` is queried, or if customer `ABC` is deleted via the API:
@@ -262,16 +256,10 @@ Step 6: step_synthesize_and_save
 | `/knowledge/rebuild` | POST | Clear and rebuild all FAISS indexes |
 | `/mcp/servers` | GET | Registered MCP servers and status |
 | `/mcp/tools` | GET | Discovered MCP tools catalog |
-| `/data/crm/customers` | GET / POST | Dynamic CRM customer CRUD |
-| `/data/crm/customers/{id}` | DELETE | Delete customer (Test Zero Silent Fallback) |
-| `/data/analytics/metrics` | GET / POST | Dynamic Analytics metrics CRUD |
-| `/data/demo/reload` | POST | Reload external demo fixtures |
-| `/data/demo/clear` | POST | Clear business data (Test empty state) |
 | `/memory/conversations` | GET | List conversation sessions |
 | `/memory/items` | GET / POST | Long-term memory CRUD |
 | `/system/health` | GET | Component diagnostics (DB, LLM, MCP, Vector Store) |
 | `/system/metrics` | GET | Platform execution statistics |
-| `/system/mode` | POST | Toggle Demo Mode vs Real Mode |
 
 ---
 

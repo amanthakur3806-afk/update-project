@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from app.mcp.servers.crm_server import crm_server_instance
 from app.mcp.servers.analytics_server import analytics_server_instance
+from app.mcp.servers.operations_server import operations_server_instance
 
 logger = logging.getLogger("mcp_manager")
 
@@ -24,28 +25,72 @@ class MCPClientManager:
         self._servers: Dict[str, Any] = {
             "crm_mcp": crm_server_instance,
             "analytics_mcp": analytics_server_instance
+            ,"operations_mcp": operations_server_instance
+        }
+        self._metadata: Dict[str, Dict[str, Any]] = {
+            "crm_mcp": {
+                "server_id": "crm_mcp",
+                "server_name": "CRM MCP Server",
+                "transport": "inprocess",
+                "status": "connected",
+            },
+            "analytics_mcp": {
+                "server_id": "analytics_mcp",
+                "server_name": "Analytics MCP Server",
+                "transport": "inprocess",
+                "status": "connected",
+            },
+            "operations_mcp": {
+                "server_id": "operations_mcp",
+                "server_name": "Customer Operations MCP Server",
+                "transport": "inprocess",
+                "status": "connected",
+                "enabled": True,
+            },
         }
 
     def register_server(self, server_id: str, server_instance: Any):
         """Register an active MCP server instance."""
         self._servers[server_id] = server_instance
+        self._metadata.setdefault(server_id, {
+            "server_id": server_id,
+            "server_name": server_id,
+            "transport": "inprocess",
+        })
+        self._metadata[server_id]["status"] = "connected"
+
+    def sync_database_servers(self, records: List[Any]) -> None:
+        """Sync the database catalog into the runtime registry.
+
+        Built-in handlers are executable immediately. Other servers remain
+        visible as registered until a transport adapter is attached.
+        """
+        for record in records:
+            metadata = {
+                "server_id": record.server_id,
+                "server_name": record.server_name,
+                "server_url": record.server_url,
+                "transport": record.transport,
+                "status": "connected" if record.server_id in self._servers else "registered",
+                "enabled": record.enabled,
+            }
+            self._metadata[record.server_id] = metadata
+
+    def get_tool_server_id(self, tool_name: str) -> Optional[str]:
+        """Resolve a discovered tool to its MCP server id."""
+        normalized = tool_name.strip().lower()
+        for server_id, server in self._servers.items():
+            try:
+                for tool in server.list_tools():
+                    if tool.get("name", "").strip().lower() == normalized:
+                        return server_id
+            except Exception as exc:
+                logger.warning("Unable to inspect MCP server %s: %s", server_id, exc)
+        return None
 
     def list_servers(self) -> List[Dict[str, Any]]:
         """List metadata of all connected MCP servers."""
-        return [
-            {
-                "server_id": "crm_mcp",
-                "server_name": "CRM MCP Server",
-                "transport": "inprocess",
-                "status": "connected"
-            },
-            {
-                "server_id": "analytics_mcp",
-                "server_name": "Analytics MCP Server",
-                "transport": "inprocess",
-                "status": "connected"
-            }
-        ]
+        return list(self._metadata.values())
 
     async def discover_tools(self) -> List[Dict[str, Any]]:
         """Discover tools dynamically across all connected MCP servers."""
@@ -99,6 +144,8 @@ class MCPClientManager:
             return self._servers.get("crm_mcp")
         elif tool_upper.startswith("ANALYTICS"):
             return self._servers.get("analytics_mcp")
+        elif tool_upper.startswith("OPERATIONS"):
+            return self._servers.get("operations_mcp")
         
         # Fallback: scan all servers for the tool
         for server in self._servers.values():

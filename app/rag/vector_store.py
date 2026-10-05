@@ -197,11 +197,26 @@ class FAISSVectorStore:
         if not vids_to_remove:
             return 0
 
-        # Remove from metadata map
-        for vid in vids_to_remove:
-            del self.metadata_map[vid]
+        # Rebuild both metadata and vector rows together. FAISS returns row
+        # positions, so leaving holes in metadata causes stale/wrong citations.
+        remaining = [
+            (vid, meta)
+            for vid, meta in sorted(self.metadata_map.items())
+            if vid not in vids_to_remove
+        ]
+        if remaining and self._all_vectors is not None:
+            valid_remaining = [
+                (vid, meta) for vid, meta in remaining if vid < len(self._all_vectors)
+            ]
+            rows = [self._all_vectors[vid] for vid, _ in valid_remaining]
+            remaining = valid_remaining
+            self._all_vectors = np.vstack(rows).astype(np.float32) if rows else None
+        else:
+            self._all_vectors = None
 
-        # Re-compact the FAISS index from remaining vectors if available
+        self.metadata_map = {
+            new_vid: meta for new_vid, (_, meta) in enumerate(remaining)
+        }
         self._recompact_index()
         self._save()
 
@@ -218,13 +233,9 @@ class FAISSVectorStore:
             self._all_vectors = None
             return
 
-        # If we have stored vector arrays, compact them
-        # Alternatively, recreate empty structure and let next ingest or reindex fill it
-        npy_path = self.storage_dir / "knowledge_index.npy"
-        if npy_path.exists() and self._all_vectors is not None:
-            # We filter remaining vectors matching active keys
-            # To ensure 100% integrity, we will re-save the compacted map
-            pass
+        if self._all_vectors is not None:
+            if _FAISS_AVAILABLE and self._index is not None:
+                self._index.add(self._all_vectors.astype(np.float32))
 
     # ------------------------------------------------------------------
     # Inspection & Debugging
@@ -280,6 +291,11 @@ class FAISSVectorStore:
                 np.save(str(npy_path), self._all_vectors)
             except Exception as e:
                 logger.warning(f"Could not save numpy vectors: {e}")
+        elif npy_path.exists():
+            try:
+                npy_path.unlink()
+            except Exception as e:
+                logger.warning(f"Could not remove stale numpy vectors: {e}")
 
         with open(self.metadata_path, "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in self.metadata_map.items()}, f, indent=2)
@@ -302,6 +318,11 @@ class FAISSVectorStore:
             except Exception:
                 self._all_vectors = None
 
+        # An empty metadata map must never revive stale vector rows on the
+        # next upload after a clear/rebuild operation.
+        if not self.metadata_map:
+            self._all_vectors = None
+
         if _FAISS_AVAILABLE and self._index is not None:
             if self.index_path.exists():
                 try:
@@ -309,6 +330,13 @@ class FAISSVectorStore:
                 except Exception as e:
                     logger.warning(f"Could not load FAISS index: {e}")
                     self._index = faiss.IndexFlatIP(self.dim)
+
+            # Repair mismatched persisted state instead of silently falling
+            # back to rows that no longer correspond to metadata IDs.
+            if self._all_vectors is not None and self._index.ntotal != len(self.metadata_map):
+                self._index = faiss.IndexFlatIP(self.dim)
+                if len(self._all_vectors):
+                    self._index.add(self._all_vectors.astype(np.float32))
 
 
 # Global singleton instance

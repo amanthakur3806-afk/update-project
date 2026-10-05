@@ -13,7 +13,6 @@ from app.api.agents import router as agents_router
 from app.api.executions import router as executions_router
 from app.api.knowledge import router as knowledge_router
 from app.api.mcp import router as mcp_router
-from app.api.data import router as data_router
 from app.api.system import router as system_router
 from app.api.memory import router as memory_router
 from app.seed_data import seed_database
@@ -57,19 +56,13 @@ app.include_router(agents_router)
 app.include_router(executions_router)
 app.include_router(knowledge_router)
 app.include_router(mcp_router)
-app.include_router(data_router)
 app.include_router(memory_router)
 
 
 @app.get("/", include_in_schema=False)
 def serve_dashboard():
-    """Serve the Web Control Center UI."""
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/favicon.ico", include_in_schema=False)
-def favicon():
-    return FileResponse(STATIC_DIR / "index.html")
+    """Serve the focused chatbot UI."""
+    return FileResponse(STATIC_DIR / "chat.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @app.get("/health", tags=["Health"])
@@ -77,8 +70,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Nexus AI Multi-MCP Agent Operations Platform",
-        "version": "2.0.0",
-        "demo_mode": settings.DEMO_MODE
+        "version": "2.0.0"
     }
 
 

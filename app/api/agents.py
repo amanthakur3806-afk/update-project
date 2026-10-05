@@ -2,7 +2,11 @@
 Agent Management & Execution API Endpoints
 """
 from typing import List
+import asyncio
+import json
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -10,6 +14,8 @@ from app.models.agent import Agent, AgentTool
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentResponse, AgentConfigResponse
 from app.schemas.execution import RunAgentRequest, RunAgentResponse
 from app.workflow.agent_workflow import create_agent_workflow
+from app.mcp.client_manager import mcp_client_manager
+from app.services.progress import progress_bus
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -61,7 +67,7 @@ def create_agent(payload: AgentCreate, db: Session = Depends(get_db)):
     db.flush()
 
     for tool_name in payload.allowed_tools:
-        server_id = "crm_mcp" if "crm" in tool_name.lower() else "analytics_mcp"
+        server_id = mcp_client_manager.get_tool_server_id(tool_name) or "unknown"
         at = AgentTool(agent_id=agent.agent_id, tool_name=tool_name, server_id=server_id)
         db.add(at)
 
@@ -160,7 +166,7 @@ def update_agent_config(agent_id: str, payload: AgentUpdate, db: Session = Depen
         # Replace existing tools
         db.query(AgentTool).filter(AgentTool.agent_id == agent.agent_id).delete()
         for tool_name in payload.allowed_tools:
-            server_id = "crm_mcp" if "crm" in tool_name.lower() else "analytics_mcp"
+            server_id = mcp_client_manager.get_tool_server_id(tool_name) or "unknown"
             at = AgentTool(agent_id=agent.agent_id, tool_name=tool_name, server_id=server_id)
             db.add(at)
 
@@ -214,3 +220,43 @@ async def run_agent(
         prompt_file=result.get("prompt_file")
     )
 
+
+@router.post("/{agent_id}/stream", summary="Execute an agent and stream safe progress events")
+async def stream_agent(
+    agent_id: str = Path(...),
+    payload: RunAgentRequest = ...,
+    db: Session = Depends(get_db)
+):
+    agent = db.query(Agent).filter(Agent.agent_id == agent_id, Agent.enabled == True).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Active agent '{agent_id}' not found.")
+
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    queue = progress_bus.subscribe(execution_id)
+
+    async def events():
+        workflow = create_agent_workflow()
+        task = asyncio.ensure_future(workflow.run(
+            agent_id=agent_id,
+            query=payload.query,
+            conversation_id=payload.conversation_id,
+            execution_id=execution_id
+        ))
+        try:
+            while not task.done() or not queue.empty():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    yield f"event: progress\ndata: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    continue
+            result = await task
+            result_payload = {"type": "complete", **result}
+            yield f"event: complete\ndata: {json.dumps(result_payload)}\n\n"
+        except Exception as exc:
+            if not task.done():
+                task.cancel()
+            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+        finally:
+            progress_bus.unsubscribe(execution_id)
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

@@ -24,7 +24,7 @@ agent_platform.db
 vector_store/
 
 # Execution audit logs (generated at runtime)
-logs/executions/*.txt
+logs/*
 
 # IDE and OS files
 .vscode/

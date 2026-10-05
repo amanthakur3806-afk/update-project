@@ -41,9 +41,6 @@ class Settings(BaseModel):
         "DATABASE_URL", f"sqlite:///{BASE_DIR}/agent_platform.db"
     )
 
-    # --- Mode ---
-    DEMO_MODE: bool = os.getenv("DEMO_MODE", "True").lower() in ("true", "1", "yes")
-
     # --- LLM Providers ---
     # Groq (ultra-fast inference) or OpenAI
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip()

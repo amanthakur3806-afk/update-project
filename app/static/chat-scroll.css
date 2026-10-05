@@ -1,0 +1,66 @@
+/* Keep the workspace fixed while the conversation itself remains scrollable. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-shell {
+  height: 100vh;
+  min-height: 0;
+}
+
+.workspace {
+  height: calc(100vh - 72px);
+  min-height: 0;
+}
+
+.agent-rail,
+.chat-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-rail {
+  overflow-y: auto;
+}
+
+.message-list {
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c7cbe0 transparent;
+}
+
+.message-list::-webkit-scrollbar,
+.agent-rail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.message-list::-webkit-scrollbar-thumb,
+.agent-rail::-webkit-scrollbar-thumb {
+  background: #c7cbe0;
+  border-radius: 10px;
+}
+
+@media (max-width: 760px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .workspace {
+    height: auto;
+    min-height: calc(100vh - 72px);
+  }
+
+  .chat-panel {
+    height: calc(100vh - 260px);
+    min-height: 500px;
+  }
+}
