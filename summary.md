@@ -1218,3 +1218,389 @@ Nexus AI strictly adheres to **Zero Silent Fallbacks**: if Customer ABC is delet
 #### Q13: How can an evaluator verify the platform if they don't have a paid Groq API key?
 **Answer:** The platform is equipped with an automatic **Deterministic Local Grounding Fallback**. If `GROQ_API_KEY` is not provided or if API rate limits are reached, the system synthesizes factual answers directly from the verified tool outputs and retrieved RAG snippets. Every automated test (`py -3.12 -m pytest tests/ -v`) passes cleanly with zero paid API keys required.
 
+---
+
+# 16. Current Implementation Addendum
+
+> This addendum documents changes made after the original report. Where this
+> section conflicts with an earlier statement, this section describes the
+> current implementation.
+
+## 16.1 Current product scope
+
+The application is now focused on a single browser chatbot experience rather
+than the earlier multi-view operations dashboard.
+
+The active chatbot is served at the root URL by app/main.py:
+
+```text
+GET /
+  -> app/static/chat.html
+```
+
+The active UI assets are:
+
+| File | Current role |
+|---|---|
+| app/static/chat.html | Chat layout, agent selector, messages, Live Activity panel |
+| app/static/chat-rich.js | Browser request/streaming logic and Live Activity interaction |
+| app/static/chat.css | Main layout and responsive styling |
+| app/static/chat-live.css | Live Activity styles and minimize/show control |
+| app/static/chat-format.css | Rich assistant-output formatting |
+| app/static/chat-polish.css | Presentation refinements |
+| app/static/chat-scroll.css | Scroll behavior |
+
+The prior dashboard assets, duplicate chat scripts, demo controls, and demo
+fixture folder were removed as part of the chatbot-focused cleanup.
+
+## 16.2 Current browser request flow
+
+The following sequence explains exactly how a prompt moves through the code:
+
+```text
+1. User selects an agent in chat.html.
+2. chat-rich.js loads enabled agents from GET /agents.
+3. User enters a message and submits the composer.
+4. chat-rich.js calls:
+      POST /agents/{agent_id}/stream
+   with query and conversation_id JSON.
+5. app/api/agents.py creates an execution ID and subscribes a queue in
+   progress_bus.
+6. AgentOrchestratorWorkflow runs asynchronously.
+7. Workflow progress messages are emitted as Server-Sent Events.
+8. chat-rich.js appends each event to Live Activity.
+9. The complete event contains the final answer, sources, tools used, and
+   execution ID.
+10. chat-rich.js renders the final assistant message.
+```
+
+The Live Activity panel now includes a **Minimize** button. Clicking it hides
+the activity rows but preserves them in the page. The control changes to
+**Show** so the user can restore the activity list without losing the final
+answer or execution progress.
+
+## 16.3 FastAPI application and router responsibilities
+
+The application is initialized in app/main.py. It:
+
+1. Runs seed_database during application lifespan startup.
+2. Mounts the static directory at /static.
+3. Registers the Agents, Executions, Knowledge, MCP, Memory, and System API
+   routers.
+4. Serves chat.html from GET /.
+
+| Router | File | Responsibility |
+|---|---|---|
+| /agents | app/api/agents.py | Agent CRUD/configuration plus run and stream endpoints |
+| /executions | app/api/executions.py | Execution history, trace, and sanitized prompt-log access |
+| /knowledge | app/api/knowledge.py | Knowledge bases, documents, upload, reindex, vector rebuild |
+| /memory | app/api/memory.py | Conversations, messages, and long-term memory facts |
+| /mcp | app/api/mcp.py | MCP registration and tool discovery |
+| /system | app/api/system.py | Health and aggregate execution metrics |
+
+## 16.4 Database setup and where SQL queries occur
+
+Database setup is in app/database.py.
+
+```text
+settings.DATABASE_URL
+  -> SQLAlchemy create_engine(...)
+  -> SessionLocal session factory
+  -> Base declarative model parent
+```
+
+FastAPI endpoints receive a database session through get_db. The dependency
+creates SessionLocal, yields it to the endpoint, and closes it when the
+request is complete.
+
+The workflow and operations MCP server use SessionLocal directly because they
+are invoked from asynchronous workflow/tool code rather than a standard
+request handler.
+
+The project uses SQLAlchemy ORM calls rather than raw SQL strings. Common
+patterns are:
+
+```python
+db.query(Model).filter(Model.field == value).first()
+db.query(Model).filter(...).all()
+db.add(model_instance)
+db.delete(model_instance)
+db.commit()
+```
+
+### Agent queries
+
+In app/api/agents.py:
+
+| Action | ORM query/write |
+|---|---|
+| List agents | db.query(Agent).all() |
+| Read agent | db.query(Agent).filter(Agent.agent_id == agent_id).first() |
+| Validate runnable agent | Query Agent by ID and Agent.enabled == True |
+| Create agent | db.add(Agent), then db.add(AgentTool) for each allowed tool |
+| Update tools | Delete AgentTool rows for the agent, then insert replacements |
+
+The workflow repeats the runnable-agent validation inside
+step_load_agent. This ensures the workflow itself cannot proceed with a
+missing or disabled agent.
+
+### Execution queries
+
+In app/workflow/agent_workflow.py:
+
+| Workflow stage | Table/query activity |
+|---|---|
+| Agent load | Insert Execution and initial ExecutionStep |
+| Memory/RAG load | Insert retrieval ExecutionStep |
+| Planning | Insert planning ExecutionStep |
+| Tool execution | Insert one ExecutionStep for each completed/failed/skipped call |
+| Condensation | Count prior steps and insert context ExecutionStep |
+| Final synthesis | Query Execution by ID, update answer/status/duration/path, insert final step |
+
+In app/api/executions.py:
+
+| Endpoint | Query |
+|---|---|
+| GET /executions | Query Execution ordered by created_at descending |
+| GET /executions/{id} | Query Execution by execution_id, then use related steps |
+| GET /executions/{id}/trace | Query Execution by ID and format step records |
+| GET /executions/{id}/prompt | Query Execution by ID, then read prompt_file_path |
+
+### Memory queries
+
+Memory code is split between app/memory/store.py and
+app/memory/memory_manager.py.
+
+| Need | Tables and action |
+|---|---|
+| Find/create a chat session | Query/insert conversations |
+| Save a chat turn | Insert messages |
+| Load recent context | Query messages by conversation_id in chronological order |
+| Save a long-term fact | Insert memories |
+| Retrieve long-term facts | Query memories, optionally using entity scope |
+
+### Knowledge queries
+
+Knowledge metadata is stored in SQLite while vectors live in FAISS.
+
+| Operation | SQLAlchemy activity | Vector activity |
+|---|---|---|
+| Upload/ingest | Insert documents and document_chunks | Embed text and add vectors |
+| List knowledge | Query knowledge_bases/documents/chunks | None |
+| Inspect a document | Query document_chunks by document ID and chunk index | None |
+| Delete a document | Delete document and related chunks | Remove document vectors |
+| Rebuild | Delete/recreate indexed rows | Clear/recreate vector store |
+
+## 16.5 Agent code and workflow logic
+
+The main class is AgentOrchestratorWorkflow in
+app/workflow/agent_workflow.py. It is an event-driven pipeline.
+
+| Method | Input | Main responsibility | Output |
+|---|---|---|---|
+| step_load_agent | StartEvent | Load configuration, classify query, create execution | AgentLoadedEvent |
+| step_load_memory_and_rag | AgentLoadedEvent | Load memory and RAG context | MemoryAndRAGLoadedEvent |
+| step_plan_tools | MemoryAndRAGLoadedEvent | Discover permitted tools and build plan | ToolPlanGeneratedEvent |
+| step_execute_tools | ToolPlanGeneratedEvent | Enforce dependencies/permissions and call MCP | ToolsExecutedEvent |
+| step_subagent_and_context | ToolsExecutedEvent | Condense results | ContextCondensedEvent |
+| step_synthesize_and_save | ContextCondensedEvent | Generate final response and persist run | StopEvent |
+
+The event contracts are defined in app/workflow/events.py. They carry the
+agent configuration, prompt, execution ID, retrieved context, plan, and tool
+results between stages.
+
+### Query classification
+
+app/services/query_classifier.py performs deterministic intent recognition. It
+extracts known customer/entity IDs and detects common CRM, analytics, policy,
+history, finance, comparison, and calculation terms. Its result includes:
+
+- Query type.
+- Target entities.
+- CRM/analytics/RAG/calculation requirements.
+- Suggested tools.
+- Intent summary.
+
+### Tool planning
+
+app/workflow/llm_provider.py contains the planner and answer synthesis logic.
+The planner combines the query, classification output, and the selected
+agent's permitted tools.
+
+For research/analytics prompts, it plans applicable CRM and Analytics calls.
+For Customer Operations prompts, it creates a read-before-write plan:
+
+```text
+Operations.get_customer
+  -> Operations.update_customer_status
+  -> Operations.add_customer_note
+  -> Operations.create_follow_up_task
+```
+
+Each write declares the customer lookup as a dependency. The executor in
+step_execute_tools records a dependent step as skipped if its prerequisite
+failed.
+
+### Result condensation and response generation
+
+app/workflow/subagent.py contains TemporaryResearchSubAgent. It knows how to
+summarize CRM profiles, analytics metrics/history, and operations results.
+This matters because Operations results were added after the earlier research
+workflow; the current condensation logic explicitly recognizes successful
+operations and not-found/error outcomes.
+
+The final synthesis in app/workflow/llm_provider.py uses Groq or OpenAI when
+configured. Without a configured provider, it uses a deterministic grounded
+response generator. It is designed to distinguish verified context from
+missing information instead of fabricating data.
+
+## 16.6 MCP manager and server code
+
+app/mcp/client_manager.py is the central tool gateway. Its responsibilities
+are:
+
+- Registering in-process servers.
+- Providing server metadata.
+- Discovering each server's list_tools definitions.
+- Filtering tools to the selected agent's allowed list.
+- Checking a requested tool against allowed permissions.
+- Resolving a tool prefix to the correct server.
+- Executing tools with timeout and retry behavior.
+
+Current routing is:
+
+```text
+CRM.*       -> crm_mcp
+Analytics.* -> analytics_mcp
+Operations.*-> operations_mcp
+```
+
+The server implementations are:
+
+| Server | File | Tool domain |
+|---|---|---|
+| CRM MCP | app/mcp/servers/crm_server.py | Customer profile/search/CRM notes |
+| Analytics MCP | app/mcp/servers/analytics_server.py | Customer metrics and history |
+| Operations MCP | app/mcp/servers/operations_server.py | Persistent operations writes and audit history |
+
+Every server exposes list_tools for discovery and call_tool for execution.
+
+## 16.7 CRM and Analytics data-service behavior
+
+CRM and Analytics server handlers delegate to app/services/data_service.py.
+The data service holds three in-memory collections:
+
+- Customers.
+- Metrics.
+- Customer history.
+
+CRM handlers use get_customer, search_customers, and append_customer_note.
+Analytics handlers use get_metrics and get_history.
+
+Important current limitation: this service is **not** represented by CRM or
+Analytics SQL tables. It starts empty after the demo-fixture cleanup. A real
+integration or explicit data-loading mechanism must populate it before research
+or operations requests can find a customer.
+
+This distinction is important for debugging:
+
+| Data area | Storage today |
+|---|---|
+| CRM customer lookup/search/analytics metrics | In-memory data service |
+| Agent configuration | SQLite |
+| Workflow executions | SQLite |
+| Conversation/memory | SQLite |
+| Knowledge metadata/chunks | SQLite |
+| Knowledge vectors | FAISS |
+| Operations notes/tasks/audits | SQLite |
+
+## 16.8 Customer Operations server and persistence
+
+The Operations server in app/mcp/servers/operations_server.py is the
+write-capable part of the project.
+
+### Customer account lookup
+
+The helper _ensure_account queries customer_accounts:
+
+```python
+db.query(CustomerAccount).filter(
+    CustomerAccount.customer_id == customer_id
+).first()
+```
+
+If no CustomerAccount exists but the live CRM data service has a customer, it
+creates and flushes a CustomerAccount. This makes a database primary key
+available for related notes and tasks.
+
+### Write operations
+
+| Tool | Short purpose / persistent database changes |
+|---|---|
+| Operations.create_customer | Creates customer_accounts and writes an audit entry |
+| Operations.list_customers | Lists customer_accounts |
+| Operations.get_customer | Reads one operations account and its open-task count |
+| Operations.update_customer_status | Updates customer_accounts and inserts operation_audit_logs |
+| Operations.add_customer_note | Inserts customer_operation_notes and operation_audit_logs |
+| Operations.get_customer_notes | Reads customer_operation_notes for one customer |
+| Operations.create_follow_up_task | Inserts follow_up_tasks and operation_audit_logs |
+| Operations.list_follow_up_tasks | Reads follow_up_tasks, optionally by customer or status |
+| Operations.update_follow_up_task_status | Updates follow_up_tasks and inserts operation_audit_logs |
+| Operations.get_audit_history | Reads operation_audit_logs |
+
+Adding a note does three things:
+
+1. Appends a timestamped note to the live CRM record.
+2. Inserts the plain note into customer_operation_notes.
+3. Inserts an audit record into operation_audit_logs.
+
+The audit-history query starts from:
+
+```python
+db.query(OperationAuditLog).order_by(
+    OperationAuditLog.created_at.desc()
+)
+```
+
+When customer_id is supplied, it additionally filters by that customer.
+
+Each write opens its own database session, commits on success, and rolls back
+on an exception. This ensures the persistent operation tables remain
+transactional.
+
+## 16.9 Model registration and database table creation
+
+All SQLAlchemy model classes are imported in app/models/__init__.py. This is
+needed before Base.metadata.create_all executes during startup; otherwise a
+model table might not be registered with SQLAlchemy and would not be created.
+
+The current persistent table groups are:
+
+| Group | Tables |
+|---|---|
+| Agent configuration | agents, agent_tools, mcp_servers |
+| Execution trace | executions, execution_steps |
+| Operations | customer_accounts, customer_operation_notes, follow_up_tasks, operation_audit_logs |
+| Memory | conversations, messages, memories |
+| Knowledge | knowledge_bases, documents, document_chunks |
+
+## 16.10 Current test status
+
+After the chatbot-focused cleanup, the remaining API, workflow, and RAG test
+suite passed with 11 tests. Tests that depended on removed fake customer
+fixtures were removed with the fixtures.
+
+## 16.11 Recommended implementation work
+
+The highest-value next technical steps are:
+
+1. Replace the in-memory CRM/Analytics data service with a persistent
+   database or external service adapter.
+2. Add a supported import/admin path for real customer, metrics, and history
+   data.
+3. Require explicit user confirmation for write-capable operations.
+4. Add user authentication and role-based permissions.
+5. Add API endpoints and UI views for persisted operation notes/tasks.
+6. Add isolated integration-test fixtures that do not ship as production demo
+   data.
+

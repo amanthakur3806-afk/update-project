@@ -1,8 +1,4 @@
-"""Database models for the future Customer Operations Agent.
-
-These tables define the write-side contract only. The MCP write operations are
-intentionally scaffolded and do not mutate these tables yet.
-"""
+"""Persistent database models for the Customer Operations Agent."""
 import datetime
 
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text

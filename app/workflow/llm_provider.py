@@ -73,16 +73,36 @@ class LLMProvider:
         entities = classification.target_entities if classification.target_entities else ["ABC"]
         avail_names = [t["name"].lower() for t in available_tools]
 
-        # Write-capable operations are planned as a dependency chain.  A live
-        # customer read must succeed before any mutation is allowed to run.
+        # Operations reads and writes are planned from the tools available to
+        # the selected Operations Agent. Writes use a read-before-write chain.
         operation_names = {name for name in avail_names if name.startswith("operations.")}
+        q = query.lower()
+        customer_id = entities[0]
+        if operation_names:
+            if "create customer" in q or "add customer" in q:
+                company_name = query.split(":", 1)[1].strip() if ":" in query else customer_id
+                return [{"tool_name": "Operations.create_customer", "arguments": {
+                    "customer_id": customer_id, "company_name": company_name
+                }}]
+            if "audit" in q or "operation history" in q:
+                return [{"tool_name": "Operations.get_audit_history", "arguments": {
+                    "customer_id": customer_id if classification.target_entities else None
+                }}]
+            if ("list customers" in q or "show customers" in q) and not classification.target_entities:
+                return [{"tool_name": "Operations.list_customers", "arguments": {}}]
+            if ("show notes" in q or "list notes" in q) and classification.target_entities:
+                return [
+                    {"tool_name": "Operations.get_customer", "arguments": {"customer_id": customer_id}, "id": "lookup_customer"},
+                    {"tool_name": "Operations.get_customer_notes", "arguments": {"customer_id": customer_id},
+                     "depends_on": ["lookup_customer"]},
+                ]
+            if ("show tasks" in q or "list tasks" in q) and classification.target_entities:
+                return [{"tool_name": "Operations.list_follow_up_tasks", "arguments": {"customer_id": customer_id}}]
         write_intent = any(word in query.lower() for word in
                            ["update", "edit", "change", "set ", "add note", "note", "follow-up", "follow up", "task", "status"])
         if operation_names and write_intent:
-            customer_id = entities[0]
             planned.append({"tool_name": "Operations.get_customer",
                             "arguments": {"customer_id": customer_id}, "id": "lookup_customer"})
-            q = query.lower()
             status_match = re.search(
                 r"(?:status|set (?:it )?to|mark(?: it)? as)\s*(?:to\s*)?"
                 r"([a-z][a-z -]{1,24}?)(?:\s+and\s+(?:add|create)|\s+because|[,.!?]|$)", q

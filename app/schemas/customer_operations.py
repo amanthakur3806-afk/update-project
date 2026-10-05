@@ -1,4 +1,4 @@
-"""Request/response contracts for the future Customer Operations Agent."""
+"""Request/response contracts for the Customer Operations Agent."""
 from datetime import date, datetime
 from typing import Optional
 

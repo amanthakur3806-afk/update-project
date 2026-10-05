@@ -86,10 +86,15 @@ def seed_database():
                 transport="inprocess",
                 configuration={
                     "capabilities": [
+                        "Operations.create_customer",
+                        "Operations.list_customers",
                         "Operations.get_customer",
                         "Operations.update_customer_status",
                         "Operations.add_customer_note",
+                        "Operations.get_customer_notes",
                         "Operations.create_follow_up_task",
+                        "Operations.list_follow_up_tasks",
+                        "Operations.update_follow_up_task_status",
                         "Operations.get_audit_history",
                     ],
                     "implementation_status": "ready",
@@ -215,14 +220,14 @@ def seed_database():
                 agent_id="customer_operations_agent",
                 agent_name="Customer Operations Agent",
                 category="Operations",
-                description="Future agent for confirmed customer status, note, and follow-up task changes.",
+                description="Manages customer accounts, notes, follow-up tasks, and operation audit history.",
                 system_prompt=(
-                    "You are a customer operations assistant. Prepare proposed database changes, "
-                    "request confirmation, and execute only approved operations MCP tools."
+                    "You are a customer operations assistant. Use only approved operations MCP tools "
+                    "and clearly report every completed or failed customer operation."
                 ),
                 playbook=(
-                    "Read customer context first. Never write without explicit confirmation. "
-                    "Every write must be transactional and audited."
+                    "Read customer context before changes. Every write must be transactional, "
+                    "audited, and based on a successful customer lookup."
                 ),
                 model="gpt-4o-mini",
                 temperature=0.0,
@@ -238,10 +243,15 @@ def seed_database():
             db.add(operations_agent)
             db.flush()
             for tool_name in [
+                "Operations.create_customer",
+                "Operations.list_customers",
                 "Operations.get_customer",
                 "Operations.update_customer_status",
                 "Operations.add_customer_note",
+                "Operations.get_customer_notes",
                 "Operations.create_follow_up_task",
+                "Operations.list_follow_up_tasks",
+                "Operations.update_follow_up_task_status",
                 "Operations.get_audit_history",
             ]:
                 db.add(AgentTool(
@@ -255,11 +265,40 @@ def seed_database():
         operations_agent.enabled = True
         operations_agent.agent_name = "Customer Operations Agent"
         operations_agent.description = "Executes permissioned customer status, note, and follow-up operations with audit history."
-        for operation_tool in db.query(AgentTool).filter(AgentTool.agent_id == operations_agent.agent_id).all():
+        operation_tool_names = [
+            "Operations.create_customer",
+            "Operations.list_customers",
+            "Operations.get_customer",
+            "Operations.update_customer_status",
+            "Operations.add_customer_note",
+            "Operations.get_customer_notes",
+            "Operations.create_follow_up_task",
+            "Operations.list_follow_up_tasks",
+            "Operations.update_follow_up_task_status",
+            "Operations.get_audit_history",
+        ]
+        existing_operation_tools = {
+            tool.tool_name: tool
+            for tool in db.query(AgentTool).filter(AgentTool.agent_id == operations_agent.agent_id).all()
+        }
+        for tool_name in operation_tool_names:
+            if tool_name not in existing_operation_tools:
+                db.add(AgentTool(
+                    agent_id=operations_agent.agent_id,
+                    tool_name=tool_name,
+                    server_id="operations_mcp",
+                    enabled=True,
+                ))
+        for operation_tool in existing_operation_tools.values():
             operation_tool.enabled = True
         operations_server = db.query(MCPServer).filter(MCPServer.server_id == "operations_mcp").first()
         if operations_server:
             operations_server.enabled = True
+            operations_server.server_name = "Customer Operations MCP Server"
+            operations_server.configuration = {
+                "capabilities": operation_tool_names,
+                "implementation_status": "ready",
+            }
         db.commit()
 
         # Ingest Knowledge Bases into SQL and FAISS
