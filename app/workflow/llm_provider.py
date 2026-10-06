@@ -13,9 +13,10 @@ Adheres strictly to the Data-Provenance Rule:
 import re
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from app.config import settings
 from app.services.query_classifier import query_classifier
+from openai import OpenAI,AsyncOpenAI
 
 logger = logging.getLogger("llm_provider")
 
@@ -173,7 +174,8 @@ class LLMProvider:
         retrieved_chunks: List[Dict[str, Any]],
         model: str = "gpt-4o-mini",
         temperature: float = 0.2,
-        max_tokens: int = 800
+        max_tokens: int = 800,
+        on_token: Optional[Callable[[str], None]] = None
     ) -> str:
         """
         Synthesizes the final answer combining playbook instructions, memory, tool findings,
@@ -215,13 +217,29 @@ class LLMProvider:
         if client is not None:
             target_model = settings.GROQ_MODEL if ptype == "groq" else (model or settings.OPENAI_MODEL)
             try:
-                completion = client.chat.completions.create(
-                    model=target_model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    messages=messages
-                )
-                return completion.choices[0].message.content
+                if on_token is not None:
+                    completion = client.chat.completions.create(
+                        model=target_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        messages=messages,
+                        stream=True
+                    )
+
+                    full_answer = []
+
+                    for chunk in completion:
+                        delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
+
+                        if delta:
+                            full_answer.append(delta)
+
+                try:
+                            on_token(delta)
+                except Exception:
+                        pass
+
+                return "".join(full_answer)
             except Exception as e:
                 logger.error(f"Live LLM call ({ptype}) failed: {e}")
                 # Zero silent fake fallback: Explicitly raise an error so the caller knows the LLM failed

@@ -267,7 +267,6 @@ class CustomerOperationsMCPServer:
                 account = self._ensure_account(db, customer_id)
                 if not account:
                     return {"success": False, "found": False, "error": f"Customer '{customer_id}' does not exist."}
-                timestamped = f"[{datetime.datetime.now(datetime.timezone.utc).isoformat()}] {note}"
                 if data_service.get_customer(customer_id):
                     data_service.append_customer_note(customer_id)
                 db.add(CustomerOperationNote(

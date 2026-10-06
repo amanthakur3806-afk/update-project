@@ -18,6 +18,19 @@ class ProgressBus:
         if queue is not None:
             await queue.put({"type": "progress", "phase": phase, "message": message})
 
+    def publish_token(self, execution_id: str, delta: str) -> None:
+        queue = self._queues.get(execution_id)
+        if queue is not None:
+            try:
+                queue.put_nowait({"type": "token", "delta": delta})
+            except Exception:
+                pass
+
+    async def publish_token_async(self, execution_id: str, delta: str) -> None:
+        queue = self._queues.get(execution_id)
+        if queue is not None:
+            await queue.put({"type": "token", "delta": delta})
+
     def unsubscribe(self, execution_id: str) -> None:
         self._queues.pop(execution_id, None)
 

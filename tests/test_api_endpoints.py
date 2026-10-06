@@ -75,3 +75,29 @@ def test_run_agent_api():
     prompt_res = client.get(f"/executions/{exec_id}/prompt")
     assert prompt_res.status_code == 200
     assert "ORCHESTRATED MULTI-MCP AGENT EXECUTION AUDIT LOG" in prompt_res.text
+
+
+def test_stream_agent_api():
+    import json
+    response = client.post(
+        "/agents/customer_research_agent/stream",
+        json={
+            "query": "Give me a summary of ABC",
+            "conversation_id": "test_stream_conv"
+        },
+        headers={"Accept": "text/event-stream"}
+    )
+    assert response.status_code == 200
+    lines = response.text.split("\n")
+    tokens = []
+    complete = None
+    for line in lines:
+        if line.startswith("data: "):
+            d = json.loads(line[6:])
+            if d.get("type") == "token":
+                tokens.append(d.get("delta", ""))
+            elif d.get("type") == "complete":
+                complete = d
+    assert len(tokens) > 0
+    assert complete is not None
+    assert complete["status"] == "completed"

@@ -8,6 +8,7 @@ Start -> Load Agent & Query Classification -> Memory & RAG -> Tool Planning
 import os
 import re
 import time
+import asyncio
 import uuid
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -531,7 +532,14 @@ class AgentOrchestratorWorkflow(Workflow):
             "synthesis"
         )
 
-        # 1. Synthesize final answer
+        # 1. Synthesize final answer with streaming support
+        tokens_streamed = False
+
+        def handle_token(delta: str):
+            nonlocal tokens_streamed
+            tokens_streamed = True
+            progress_bus.publish_token(ev.execution_id, delta)
+
         final_answer = llm_provider.synthesize_response(
             agent_name=agent_cfg["agent_name"],
             system_prompt=agent_cfg["system_prompt"],
@@ -542,8 +550,18 @@ class AgentOrchestratorWorkflow(Workflow):
             condensed_tool_summary=ev.condensed_tool_summary,
             retrieved_chunks=ev.retrieved_chunks,
             model=agent_cfg.get("model", "gpt-4o-mini"),
-            temperature=agent_cfg.get("temperature", 0.2)
+            temperature=agent_cfg.get("temperature", 0.2),
+            on_token=handle_token
         )
+
+        # If live LLM streaming was not active (e.g. deterministic local mode), stream tokens in chunks
+        if not tokens_streamed and final_answer:
+            words = re.findall(r"\S+\s*", final_answer)
+            chunk_size = 3
+            for i in range(0, len(words), chunk_size):
+                chunk = "".join(words[i:i + chunk_size])
+                progress_bus.publish_token(ev.execution_id, chunk)
+                await asyncio.sleep(0.012)
 
         # 2. Build and write final_prompt.txt (sanitized audit log)
         prompt_log_file = settings.EXECUTIONS_LOG_DIR / f"{ev.execution_id}_prompt.txt"

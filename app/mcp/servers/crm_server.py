@@ -176,7 +176,6 @@ class CRMMCPServer:
             "success": True,
             "customer_id": customer_id,
             "notes_count": notes_count,
-            "last_note": timestamped_note,
         }
 
 
