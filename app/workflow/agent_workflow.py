@@ -251,10 +251,13 @@ class AgentOrchestratorWorkflow(Workflow):
                 if mem_cfg.get("long_term", True):
                     long_term_facts = mem_data["long_term_facts"]
 
-            # 2. Knowledge Base RAG via FAISS
+            # 2. Knowledge Base RAG via FAISS (Conditional Retrieval)
             wf_cfg = agent_cfg.get("workflow_configuration", {})
             target_kb = wf_cfg.get("knowledge_base", "customer_docs")
-            if wf_cfg.get("rag_enabled", True):
+            is_action_intent = bool(ev.query_classification and ev.query_classification.get("is_action_intent"))
+            
+            # Skip RAG retrieval for pure CRUD/action requests to avoid context contamination
+            if wf_cfg.get("rag_enabled", True) and not is_action_intent:
                 retrieved_chunks = _retrieve_rag_chunks(
                     query=ev.query,
                     kb_id=target_kb,
@@ -263,7 +266,7 @@ class AgentOrchestratorWorkflow(Workflow):
 
             await progress_bus.publish(
                 ev.execution_id,
-                f"Retrieved {len(retrieved_chunks)} knowledge chunks from {target_kb}; "
+                f"Retrieved {len(retrieved_chunks)} knowledge chunks from {target_kb if not is_action_intent else 'N/A (action request)'}; "
                 f"memory: {len(short_term_history)} recent turns and {len(long_term_facts)} long-term facts",
                 "retrieval"
             )
@@ -273,7 +276,7 @@ class AgentOrchestratorWorkflow(Workflow):
                 execution_id=ev.execution_id,
                 step_number=2,
                 step_name="memory_and_rag_retrieval",
-                input_payload={"query": ev.query, "kb_id": wf_cfg.get("knowledge_base")},
+                input_payload={"query": ev.query, "kb_id": wf_cfg.get("knowledge_base"), "is_action_intent": is_action_intent},
                 output_payload={
                     "short_term_turns": len(short_term_history),
                     "long_term_facts_count": len(long_term_facts),
@@ -540,7 +543,7 @@ class AgentOrchestratorWorkflow(Workflow):
             tokens_streamed = True
             progress_bus.publish_token(ev.execution_id, delta)
 
-        final_answer = llm_provider.synthesize_response(
+        final_answer = await llm_provider.synthesize_response_async(
             agent_name=agent_cfg["agent_name"],
             system_prompt=agent_cfg["system_prompt"],
             playbook=agent_cfg["playbook"],
@@ -557,11 +560,11 @@ class AgentOrchestratorWorkflow(Workflow):
         # If live LLM streaming was not active (e.g. deterministic local mode), stream tokens in chunks
         if not tokens_streamed and final_answer:
             words = re.findall(r"\S+\s*", final_answer)
-            chunk_size = 3
+            chunk_size = 4
             for i in range(0, len(words), chunk_size):
                 chunk = "".join(words[i:i + chunk_size])
                 progress_bus.publish_token(ev.execution_id, chunk)
-                await asyncio.sleep(0.012)
+                await asyncio.sleep(0.005)
 
         # 2. Build and write final_prompt.txt (sanitized audit log)
         prompt_log_file = settings.EXECUTIONS_LOG_DIR / f"{ev.execution_id}_prompt.txt"

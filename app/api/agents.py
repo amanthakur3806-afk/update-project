@@ -622,7 +622,7 @@ async def stream_agent(
 
                     event = await asyncio.wait_for(
                         queue.get(),
-                        timeout=0.25
+                        timeout=0.05
                     )
 
                     event_type = event.get(
@@ -638,10 +638,19 @@ async def stream_agent(
 
                 except asyncio.TimeoutError:
 
-                    # No event arrived in this interval.
-                    # Check whether workflow is finished.
-
                     if task.done():
+                        # Drain any remaining queued events before breaking
+                        while not queue.empty():
+                            try:
+                                rem_event = queue.get_nowait()
+                                rem_type = rem_event.get("type", "progress")
+                                yield (
+                                    f"event: {rem_type}\n"
+                                    f"data: "
+                                    f"{json.dumps(rem_event)}\n\n"
+                                )
+                            except asyncio.QueueEmpty:
+                                break
                         break
 
                     continue

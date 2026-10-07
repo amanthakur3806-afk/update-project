@@ -17,6 +17,11 @@ class ToolPermissionError(Exception):
     """Raised when an agent attempts to execute an unauthorized tool."""
     pass
 
+class ToolNotFoundError(Exception):
+    """Raised when a requested tool is not registered in the catalog."""
+    pass
+
+
 class MCPClientManager:
     """Coordinates multiple MCP servers, tool discovery, permissions, and tool execution."""
 
@@ -24,8 +29,8 @@ class MCPClientManager:
         # Server registry mapping server_id to server handler
         self._servers: Dict[str, Any] = {
             "crm_mcp": crm_server_instance,
-            "analytics_mcp": analytics_server_instance
-            ,"operations_mcp": operations_server_instance
+            "analytics_mcp": analytics_server_instance,
+            "operations_mcp": operations_server_instance,
         }
         self._metadata: Dict[str, Dict[str, Any]] = {
             "crm_mcp": {
@@ -48,6 +53,47 @@ class MCPClientManager:
                 "enabled": True,
             },
         }
+        # Runtime Tool Registry
+        self._tool_registry: Dict[str, Dict[str, Any]] = {}
+        self._build_tool_registry()
+
+    def _build_tool_registry(self) -> None:
+        """Construct canonical tool registry from connected MCP servers."""
+        self._tool_registry.clear()
+        
+        # Metadata for tool safety and idempotency
+        write_tools = {
+            "operations.create_customer",
+            "operations.update_customer_status",
+            "operations.add_customer_note",
+            "operations.create_follow_up_task",
+            "operations.update_follow_up_task_status",
+            "crm.update_notes",
+        }
+
+        for server_id, server in self._servers.items():
+            try:
+                tools = server.list_tools()
+                for tool in tools:
+                    name = tool.get("name", "").strip()
+                    if not name:
+                        continue
+                    canon_key = name.lower()
+                    
+                    # Tool classification
+                    is_read_only = canon_key not in write_tools
+                    safe_to_retry = is_read_only  # Writes are not safe to retry without idempotency key
+
+                    self._tool_registry[canon_key] = {
+                        "canonical_name": name,
+                        "server_id": server_id,
+                        "server": server,
+                        "definition": tool,
+                        "read_only": is_read_only,
+                        "safe_to_retry": safe_to_retry,
+                    }
+            except Exception as exc:
+                logger.error(f"Error building tool registry from server {server_id}: {exc}")
 
     def register_server(self, server_id: str, server_instance: Any):
         """Register an active MCP server instance."""
@@ -58,13 +104,10 @@ class MCPClientManager:
             "transport": "inprocess",
         })
         self._metadata[server_id]["status"] = "connected"
+        self._build_tool_registry()
 
     def sync_database_servers(self, records: List[Any]) -> None:
-        """Sync the database catalog into the runtime registry.
-
-        Built-in handlers are executable immediately. Other servers remain
-        visible as registered until a transport adapter is attached.
-        """
+        """Sync the database catalog into the runtime registry."""
         for record in records:
             metadata = {
                 "server_id": record.server_id,
@@ -75,85 +118,72 @@ class MCPClientManager:
                 "enabled": record.enabled,
             }
             self._metadata[record.server_id] = metadata
+        self._build_tool_registry()
 
     def get_tool_server_id(self, tool_name: str) -> Optional[str]:
-        """Resolve a discovered tool to its MCP server id."""
-        normalized = tool_name.strip().lower()
-        for server_id, server in self._servers.items():
-            try:
-                for tool in server.list_tools():
-                    if tool.get("name", "").strip().lower() == normalized:
-                        return server_id
-            except Exception as exc:
-                logger.warning("Unable to inspect MCP server %s: %s", server_id, exc)
-        return None
+        """Resolve a discovered tool to its MCP server id using registry lookup."""
+        canon_key = tool_name.strip().lower()
+        entry = self._tool_registry.get(canon_key)
+        return entry["server_id"] if entry else None
 
     def list_servers(self) -> List[Dict[str, Any]]:
         """List metadata of all connected MCP servers."""
         return list(self._metadata.values())
 
     async def discover_tools(self) -> List[Dict[str, Any]]:
-        """Discover tools dynamically across all connected MCP servers."""
-        all_tools = []
-        for server_id, server in self._servers.items():
-            try:
-                tools = server.list_tools()
-                for tool in tools:
-                    all_tools.append(tool)
-            except Exception as e:
-                logger.error(f"Error discovering tools from server {server_id}: {e}")
-        return all_tools
+        """Discover tools across all connected MCP servers via registry."""
+        if not self._tool_registry:
+            self._build_tool_registry()
+        return [entry["definition"] for entry in self._tool_registry.values()]
 
     async def get_tools_for_agent(self, allowed_tools: List[str]) -> List[Dict[str, Any]]:
         """Filter discovered tools by agent-specific tool permissions."""
-        all_tools = await self.discover_tools()
         if not allowed_tools:
             return []
+        if not self._tool_registry:
+            self._build_tool_registry()
 
-        # Normalize allowed tool names (case-insensitive and whitespace stripped)
-        allowed_normalized = {t.strip().lower() for t in allowed_tools}
-        
+        allowed_canon = {t.strip().lower() for t in allowed_tools}
         filtered = []
-        for tool in all_tools:
-            name = tool["name"].lower()
-            # Check direct match or without prefix (e.g. 'crm.get_customer' or 'get_customer')
-            matches = any(
-                name == allowed or name.endswith(f".{allowed}") or allowed.endswith(f".{name}")
-                for allowed in allowed_normalized
-            )
-            if matches:
-                filtered.append(tool)
+        for canon_key, entry in self._tool_registry.items():
+            # Match canonical full name or bare name if exact
+            if canon_key in allowed_canon:
+                filtered.append(entry["definition"])
+            else:
+                # Handle cases where DB has 'CRM.get_customer' or 'crm.get_customer'
+                for allowed in allowed_canon:
+                    if canon_key == allowed or canon_key == allowed.lower():
+                        filtered.append(entry["definition"])
+                        break
         return filtered
 
     def check_tool_permission(self, tool_name: str, allowed_tools: List[str]) -> bool:
         """Validate if a specific tool is authorized for the given agent."""
-        tool_name_norm = tool_name.strip().lower()
-        allowed_normalized = {t.strip().lower() for t in allowed_tools}
-
-        return any(
-            tool_name_norm == allowed or 
-            tool_name_norm.endswith(f".{allowed}") or 
-            allowed.endswith(f".{tool_name_norm}")
-            for allowed in allowed_normalized
-        )
+        tool_canon = tool_name.strip().lower()
+        allowed_canon = {t.strip().lower() for t in allowed_tools}
+        
+        # Check canonical match
+        if tool_canon in allowed_canon:
+            return True
+            
+        # Check if mapped to registered tool
+        entry = self._tool_registry.get(tool_canon)
+        if entry:
+            return entry["canonical_name"].lower() in allowed_canon
+            
+        return False
 
     def _resolve_server(self, tool_name: str) -> Optional[Any]:
-        """Find the corresponding MCP server for a tool."""
-        tool_upper = tool_name.upper()
-        if tool_upper.startswith("CRM"):
-            return self._servers.get("crm_mcp")
-        elif tool_upper.startswith("ANALYTICS"):
-            return self._servers.get("analytics_mcp")
-        elif tool_upper.startswith("OPERATIONS"):
-            return self._servers.get("operations_mcp")
-        
-        # Fallback: scan all servers for the tool
-        for server in self._servers.values():
-            tools = server.list_tools()
-            for t in tools:
-                if t["name"].lower() == tool_name.lower():
-                    return server
+        """Find the corresponding MCP server for a tool using registry lookup."""
+        canon_key = tool_name.strip().lower()
+        entry = self._tool_registry.get(canon_key)
+        if entry:
+            return entry["server"]
         return None
+
+    def get_tool_metadata(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieve tool registry metadata (read_only, safe_to_retry, etc.)."""
+        return self._tool_registry.get(tool_name.strip().lower())
 
     async def execute_tool(
         self,
@@ -164,8 +194,8 @@ class MCPClientManager:
         max_retries: int = 1
     ) -> Dict[str, Any]:
         """
-        Execute an MCP tool with explicit permission checking, timeout, and retry handling.
-        Returns execution result dictionary with timing and status.
+        Execute an MCP tool with explicit permission checking, timeout, safe retries,
+        and separated transport vs business success semantics.
         """
         start_time = time.time()
         
@@ -176,31 +206,50 @@ class MCPClientManager:
                 f"Tool '{tool_name}' is not in the allowed tools list for this agent: {allowed_tools}"
             )
 
-        # 2. Resolve target MCP server
+        # 2. Registry lookup & Server resolution
+        meta = self.get_tool_metadata(tool_name)
         server = self._resolve_server(tool_name)
-        if not server:
+        if not server or not meta:
             duration_ms = round((time.time() - start_time) * 1000, 2)
             return {
                 "success": False,
+                "tool_success": False,
+                "transport_success": False,
                 "tool_name": tool_name,
-                "error": f"No connected MCP server found for tool '{tool_name}'",
-                "duration_ms": duration_ms
+                "arguments": arguments,
+                "error": f"Tool '{tool_name}' is not registered in the MCP tool registry.",
+                "duration_ms": duration_ms,
+                "attempts": 0
             }
 
-        # 3. Resilient execution with retries and timeout
+        # 3. Determine safe retry count
+        allowed_attempts = (max_retries + 1) if meta.get("safe_to_retry", False) else 1
+
         last_error = None
-        for attempt in range(max_retries + 1):
+        for attempt in range(allowed_attempts):
             try:
                 result = await asyncio.wait_for(
                     server.call_tool(tool_name, arguments),
                     timeout=timeout_seconds
                 )
                 duration_ms = round((time.time() - start_time) * 1000, 2)
+                
+                # Determine tool business success vs business failure
+                tool_success = True
+                if isinstance(result, dict):
+                    if result.get("success") is False or result.get("found") is False:
+                        tool_success = False
+                        if result.get("error"):
+                            last_error = result.get("error")
+                
                 return {
-                    "success": True,
-                    "tool_name": tool_name,
+                    "success": tool_success,  # Overall business success
+                    "tool_success": tool_success,
+                    "transport_success": True,
+                    "tool_name": meta["canonical_name"],
                     "arguments": arguments,
                     "result": result,
+                    "error": last_error,
                     "duration_ms": duration_ms,
                     "attempts": attempt + 1
                 }
@@ -209,18 +258,21 @@ class MCPClientManager:
             except Exception as e:
                 last_error = str(e)
             
-            # Brief delay before retry
-            if attempt < max_retries:
+            # Brief delay before retry if safe
+            if attempt < allowed_attempts - 1:
                 await asyncio.sleep(0.2)
 
         duration_ms = round((time.time() - start_time) * 1000, 2)
         return {
             "success": False,
-            "tool_name": tool_name,
+            "tool_success": False,
+            "transport_success": False,
+            "tool_name": meta["canonical_name"],
             "arguments": arguments,
+            "result": {"success": False, "error": last_error},
             "error": last_error,
             "duration_ms": duration_ms,
-            "attempts": max_retries + 1
+            "attempts": allowed_attempts
         }
 
 # Global singleton

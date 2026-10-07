@@ -81,14 +81,58 @@ class TemporaryResearchSubAgent:
 
             elif "operations" in tool_name.lower():
                 if res.get("found") is False or res.get("success") is False:
+                    err_text = res.get("error") or res.get("message") or "Operation failed."
+                    extracted_facts.append(f"Operations {tool_name} FAILED: {err_text}")
+                elif "create_customer" in tool_name.lower():
+                    cust = res.get("customer", {})
                     extracted_facts.append(
-                        f"Operations {tool_name}: {res.get('error') or res.get('message', 'Customer was not found.') }"
+                        f"Operations Created Customer: ID '{cust.get('customer_id')}', Company: '{cust.get('company_name')}', Status: '{cust.get('status')}'"
                     )
-                elif tool_name.lower().endswith("get_customer"):
-                    customer = res.get("customer", {})
+                elif "update_customer_status" in tool_name.lower():
                     extracted_facts.append(
-                        f"Operations Customer Lookup: verified {customer.get('company_name', customer.get('customer_id', 'customer'))} "
-                        f"(ID: {customer.get('customer_id', 'unknown')})."
+                        f"Operations Updated Customer Status: Customer '{res.get('customer_id')}' status changed from '{res.get('old_status')}' to '{res.get('new_status')}'"
+                    )
+                elif "add_customer_note" in tool_name.lower():
+                    extracted_facts.append(
+                        f"Operations Added Note: Customer '{res.get('customer_id')}', Note: '{res.get('note')}'"
+                    )
+                elif "create_follow_up_task" in tool_name.lower():
+                    task = res.get("task", {})
+                    extracted_facts.append(
+                        f"Operations Created Follow-up Task: Customer '{res.get('customer_id')}', Title: '{task.get('title')}', Task ID: {task.get('task_id')}"
+                    )
+                elif "list_customers" in tool_name.lower():
+                    cust_list = res.get("customers", [])
+                    if cust_list:
+                        items = [f"{c.get('customer_id')} ({c.get('company_name')}, {c.get('status')})" for c in cust_list]
+                        extracted_facts.append(f"Operations Customer Accounts ({len(cust_list)} found):\n  - " + "\n  - ".join(items))
+                    else:
+                        extracted_facts.append("Operations Customer Accounts: No customer records found.")
+                elif "get_customer_notes" in tool_name.lower():
+                    notes = res.get("notes", [])
+                    if notes:
+                        items = [f"[{n.get('created_at', '')}] {n.get('note')}" for n in notes]
+                        extracted_facts.append(f"Operations Notes for Customer '{res.get('customer_id')}' ({len(notes)} note(s)):\n  - " + "\n  - ".join(items))
+                    else:
+                        extracted_facts.append(f"Operations Notes for Customer '{res.get('customer_id')}': No notes recorded.")
+                elif "list_follow_up_tasks" in tool_name.lower():
+                    tasks = res.get("tasks", [])
+                    if tasks:
+                        items = [f"Task #{t.get('id') or t.get('task_id')}: {t.get('title')} [{t.get('status')}]" for t in tasks]
+                        extracted_facts.append(f"Operations Follow-up Tasks for Customer '{res.get('customer_id')}' ({len(tasks)} task(s)):\n  - " + "\n  - ".join(items))
+                    else:
+                        extracted_facts.append(f"Operations Follow-up Tasks for Customer '{res.get('customer_id')}': No open tasks.")
+                elif "get_audit_history" in tool_name.lower():
+                    history = res.get("audit_history") or res.get("history") or []
+                    if history:
+                        items = [f"[{h.get('created_at', '')}] {h.get('action')}: {h.get('details', '') or h.get('new_value', '')}" for h in history[:6]]
+                        extracted_facts.append(f"Operations Audit History ({len(history)} entries):\n  - " + "\n  - ".join(items))
+                    else:
+                        extracted_facts.append("Operations Audit History: No audit records found.")
+                elif "get_customer" in tool_name.lower():
+                    cust = res.get("customer", {})
+                    extracted_facts.append(
+                        f"Operations Customer Record: ID '{cust.get('customer_id')}', Company: '{cust.get('company_name')}', Status: '{cust.get('status')}', Open Tasks: {res.get('open_tasks_count', 0)}"
                     )
                 else:
                     details = ", ".join(f"{key}={value}" for key, value in res.items() if key not in {"success", "customer_id"})

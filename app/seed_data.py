@@ -5,6 +5,7 @@ Initializes database schema, seeds dynamic agent configurations with categories,
 registers MCP servers, populates long-term memories, and handles Demo Mode
 data ingestion.
 """
+import datetime
 import sys
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -14,6 +15,12 @@ from app.database import engine, SessionLocal, Base
 from app.models.agent import Agent, AgentTool
 from app.models.mcp import MCPServer
 from app.models.knowledge import KnowledgeBase, Document
+from app.models.customer_operations import (
+    CustomerAccount,
+    CustomerOperationNote,
+    FollowUpTask,
+    OperationAuditLog,
+)
 from app.rag.ingest import ingest_knowledge_base
 from app.rag.vector_store import vector_store
 
@@ -265,6 +272,14 @@ def seed_database():
         operations_agent.enabled = True
         operations_agent.agent_name = "Customer Operations Agent"
         operations_agent.description = "Executes permissioned customer status, note, and follow-up operations with audit history."
+        operations_agent.system_prompt = (
+            "You are a customer operations assistant. Execute approved operations MCP tools "
+            "and clearly report and confirm every completed customer operation."
+        )
+        operations_agent.playbook = (
+            "Execute requested customer operations directly using operations MCP tools. "
+            "Confirm successful operations with details and report any errors clearly."
+        )
         operation_tool_names = [
             "Operations.create_customer",
             "Operations.list_customers",
@@ -301,7 +316,43 @@ def seed_database():
             }
         db.commit()
 
-        # Ingest Knowledge Bases into SQL and FAISS
+        # 4. Seed Persistent Customer Operations Accounts & Tasks if missing
+        initial_ops_accounts = [
+            ("ABC", "ABC Global Logistics & Supply Inc.", "active", "Sarah Jenkins", datetime.date(2027, 1, 15)),
+            ("XYZ", "XYZ FinTech Global Holdings", "active", "Michael Chang", datetime.date(2026, 11, 30)),
+            ("ACME", "Acme Industrial Automation Corp", "active", "Jessica Vance", datetime.date(2027, 1, 20)),
+            ("NOVA", "NovaHealth Technologies International", "active", "David K. Miller", datetime.date(2027, 8, 10)),
+            ("VERTEX", "Vertex Media & Streaming Networks", "active", "Amanda Ross", datetime.date(2026, 12, 15)),
+            ("QUANTUM", "Quantum Retail Networks Inc", "at-risk", "Brian Kelly", datetime.date(2026, 10, 31)),
+        ]
+        for cid, name, status, owner, renewal in initial_ops_accounts:
+            acc = db.query(CustomerAccount).filter(CustomerAccount.customer_id == cid).first()
+            if not acc:
+                acc = CustomerAccount(
+                    customer_id=cid,
+                    company_name=name,
+                    status=status,
+                    owner=owner,
+                    renewal_date=renewal
+                )
+                db.add(acc)
+                db.flush()
+
+                db.add(CustomerOperationNote(
+                    customer_id=acc.id,
+                    note=f"Initial enterprise operations profile initialized for {name}.",
+                    created_by="system_seeder"
+                ))
+                db.add(FollowUpTask(
+                    customer_id=acc.id,
+                    title=f"Conduct technical health & SLA compliance review for {cid}",
+                    due_date=renewal,
+                    status="open",
+                    created_by="system_seeder"
+                ))
+        db.commit()
+
+        # 5. Ingest Knowledge Bases into SQL and FAISS
         kb_dirs = [
             ("customer_docs", "Customer Documents", settings.KNOWLEDGE_BASE_DIR / "customer_docs"),
             ("company_policies", "Company Policies", settings.KNOWLEDGE_BASE_DIR / "company_policies"),
@@ -322,15 +373,13 @@ def seed_database():
                 )
                 db.add(kb)
             else:
-                # Keep seeded knowledge bases anchored to this checkout. The
-                # database may have been copied from another machine and can
-                # otherwise retain a stale absolute folder path.
                 kb.folder_path = str(kb_path)
         db.commit()
 
-        # Ingest documents if DB or vector store is empty
+        # Ingest documents if DB or vector store has missing files
+        current_disk_docs = sum(len(list(p.glob("*.md"))) for _, _, p in kb_dirs if p.exists())
         doc_count = db.query(Document).count()
-        if doc_count == 0 or vector_store.total_vectors == 0:
+        if doc_count < current_disk_docs or vector_store.total_vectors == 0:
             for kb_id, kb_name, kb_path in kb_dirs:
                 if kb_path.exists():
                     ingest_knowledge_base(
