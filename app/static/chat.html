@@ -1,32 +1,269 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexus AI</title><link rel="stylesheet" href="/static/chat.css?v=5"><link rel="stylesheet" href="/static/chat-live.css?v=7"><link rel="stylesheet" href="/static/chat-format.css?v=2"><link rel="stylesheet" href="/static/chat-polish.css?v=2"><link rel="stylesheet" href="/static/chat-scroll.css?v=2">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luna - Autonomous Multi-MCP Workspace</title>
+  <link rel="stylesheet" href="/static/chat.css?v=8">
+  <link rel="stylesheet" href="/static/chat-live.css?v=11">
+  <link rel="stylesheet" href="/static/chat-format.css?v=5">
+  <link rel="stylesheet" href="/static/chat-polish.css?v=5">
+  <link rel="stylesheet" href="/static/chat-scroll.css?v=5">
+  <link rel="stylesheet" href="/static/chat-auth.css?v=4">
 </head>
 <body>
-  <main class="app-shell">
+
+  <!-- Full-Screen Enterprise Auth Screen & Portal (Solid, Immersive, No chat bleed-through) -->
+  <div id="authScreen" class="auth-screen-overlay" hidden>
+    <div class="auth-screen-container">
+      
+      <!-- Left Hero Showcase Panel -->
+      <div class="auth-hero-panel">
+        <div class="auth-hero-brand">
+          <span class="hero-brand-mark">L</span>
+          <div class="hero-brand-text">
+            <h2>Luna</h2>
+            <small>Autonomous Multi-MCP Workspace</small>
+          </div>
+        </div>
+
+        <div class="auth-hero-content">
+          <span class="auth-hero-pill">Enterprise AI Orchestrator</span>
+          <h1 class="auth-hero-title">Intelligent Customer Operations &amp; Intelligence</h1>
+          <p class="auth-hero-description">
+            Luna coordinates tools across CRM, Real-time Analytics, Customer Operations, and Knowledge Base without manual agent switching.
+          </p>
+
+          <div class="auth-feature-list">
+            <div class="auth-feature-item">
+              <div class="auth-feature-icon">01</div>
+              <div class="auth-feature-text">
+                <strong>Autonomous Intent Routing</strong>
+                <span>Classifies queries and executes actions directly across multiple MCP servers.</span>
+              </div>
+            </div>
+            <div class="auth-feature-item">
+              <div class="auth-feature-icon">02</div>
+              <div class="auth-feature-text">
+                <strong>Role-Aware Agent Context</strong>
+                <span>Responses and recommendations are customized specifically for your role and responsibilities.</span>
+              </div>
+            </div>
+            <div class="auth-feature-item">
+              <div class="auth-feature-icon">03</div>
+              <div class="auth-feature-text">
+                <strong>Multi-Chat Privacy &amp; Isolation</strong>
+                <span>JWT authenticated sessions with isolated conversation histories and short-term memory.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-hero-footer">
+          <span>Powered by LlamaIndex Workflows &amp; FastAPI</span>
+          <span class="hero-version-tag">v2.4 Enterprise</span>
+        </div>
+      </div>
+
+      <!-- Right Auth Card Panel -->
+      <div class="auth-card-panel">
+        <div class="auth-card-header">
+          <button id="closeAuthScreenBtn" class="auth-screen-close" type="button" aria-label="Return to Workspace" hidden title="Return to Workspace">&times;</button>
+          <div class="auth-card-titles">
+            <h3 id="authCardTitle">Welcome Back</h3>
+            <p id="authCardSubtitle">Sign in, create an account, or test with 1-click enterprise personas.</p>
+          </div>
+        </div>
+
+        <!-- Auth Navigation Tabs -->
+        <div class="auth-tab-bar">
+          <button class="auth-tab-btn active" data-tab="login" type="button">Sign In</button>
+          <button class="auth-tab-btn" data-tab="register" type="button">Create Account</button>
+          <button class="auth-tab-btn" data-tab="demo" type="button">1-Click Personas</button>
+        </div>
+
+        <!-- Error & Alert Notice Banner -->
+        <div id="authNotice" class="auth-notice" hidden></div>
+
+        <!-- Tab 1: Sign In Form -->
+        <form id="loginForm" class="auth-body-tab">
+          <div class="auth-field">
+            <label for="loginId">Username or Email</label>
+            <input type="text" id="loginId" placeholder="e.g. sarah or sarah.jenkins@enterprise.com" required autocomplete="username">
+          </div>
+          <div class="auth-field">
+            <label for="loginPassword">Password</label>
+            <input type="password" id="loginPassword" placeholder="Password" required autocomplete="current-password">
+          </div>
+          <button type="submit" id="loginSubmitBtn" class="auth-main-btn">
+            <span class="btn-text">Sign In to Workspace</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+
+          <div class="auth-sub-links">
+            <span>Don't have an account? <a href="#" id="linkToRegister">Create one now</a></span>
+            <span>Or test immediately via <a href="#" id="linkToDemo">1-Click Personas</a></span>
+          </div>
+        </form>
+
+        <!-- Tab 2: Create Account Form -->
+        <form id="registerForm" class="auth-body-tab" hidden>
+          <div class="auth-field-row">
+            <div class="auth-field">
+              <label for="regFullName">Full Name *</label>
+              <input type="text" id="regFullName" placeholder="e.g. Marcus Vance" required>
+            </div>
+            <div class="auth-field">
+              <label for="regUsername">Username *</label>
+              <input type="text" id="regUsername" placeholder="e.g. marcusv" required autocomplete="username">
+            </div>
+          </div>
+
+          <div class="auth-field-row">
+            <div class="auth-field">
+              <label for="regEmail">Email Address *</label>
+              <input type="email" id="regEmail" placeholder="marcus.vance@enterprise.com" required autocomplete="email">
+            </div>
+            <div class="auth-field">
+              <label for="regPassword">Password *</label>
+              <input type="password" id="regPassword" placeholder="Min 6 characters" minlength="6" required autocomplete="new-password">
+            </div>
+          </div>
+
+          <div class="auth-field-row">
+            <div class="auth-field">
+              <label for="regRole">Role / Title</label>
+              <input type="text" id="regRole" placeholder="e.g. Senior Solutions Architect">
+            </div>
+            <div class="auth-field">
+              <label for="regDepartment">Department</label>
+              <input type="text" id="regDepartment" placeholder="e.g. Customer Engineering">
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="regResponsibilities">Responsibilities (Agent Profile Context)</label>
+            <input type="text" id="regResponsibilities" placeholder="e.g. Leads technical migrations, API reviews, and SLA incidents">
+            <small class="field-hint">Luna automatically adapts responses and tone to this focus area.</small>
+          </div>
+
+          <button type="submit" id="regSubmitBtn" class="auth-main-btn">
+            <span class="btn-text">Create Account &amp; Start Chatting</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+
+          <div class="auth-sub-links">
+            <span>Already have an account? <a href="#" id="linkToLogin">Sign In</a></span>
+          </div>
+        </form>
+
+        <!-- Tab 3: 1-Click Demo Personas -->
+        <div id="demoTabContent" class="auth-body-tab" hidden>
+          <p class="demo-prompt-note">Select a pre-configured enterprise persona. Luna will instantly tailor answers, tone, and action suggestions to their assigned accounts and duties:</p>
+          <div id="demoAccountsGrid" class="demo-grid-wrap">
+            <!-- Dynamically populated via JS -->
+          </div>
+        </div>
+
+        <!-- Optional Guest Access Link -->
+        <div class="auth-guest-option">
+          <button id="guestContinueBtn" type="button" class="guest-link-btn">Continue as Guest (Anonymous Session)</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Workspace Application Shell -->
+  <main class="app-shell" id="appShell">
     <header class="topbar">
-      <a class="brand" href="/"><span class="brand-mark">N</span><span><strong>Nexus AI</strong><small>Agent workspace</small></span></a>
-      <div class="topbar-actions"><span id="connectionStatus" class="status-pill"><i></i> Connecting</span><button class="icon-button" id="refreshButton" title="Refresh agents and MCP servers">↻</button></div>
+      <a class="brand" href="/">
+        <span class="brand-mark">L</span>
+        <span><strong>Luna</strong><small>Autonomous workspace</small></span>
+      </a>
+      <div class="topbar-actions">
+        <span id="connectionStatus" class="status-pill"><i></i> Connecting</span>
+        <button class="icon-button" id="refreshButton" title="Refresh tools and capabilities">Sync</button>
+        <div id="userMenuContainer" class="user-menu-wrap">
+          <!-- Populated dynamically via JS -->
+          <button id="authTriggerBtn" class="auth-cta-btn" type="button">Sign In / Switch Persona</button>
+        </div>
+      </div>
     </header>
+
     <section class="workspace">
       <aside class="agent-rail">
-        <div class="rail-heading"><div><span class="eyebrow">Workspace</span><h1>Agents</h1></div><span id="agentCount" class="count-badge">0</span></div>
-        <p class="rail-copy">Choose an agent managed by your backend. New agents appear here after refresh.</p>
-        <label class="sr-only" for="agentSelect">Select an agent</label><select id="agentSelect" class="agent-select"></select>
+        <div class="rail-heading">
+          <div><span class="eyebrow">Autonomous</span><h1>Luna</h1></div>
+          <span id="agentCount" class="count-badge">Ready</span>
+        </div>
+        <p class="rail-copy">Luna dynamically orchestrates CRM, Analytics, Operations, and Knowledge Base tools in a single unified conversation.</p>
+        
+        <label class="sr-only" for="agentSelect">Active Agent</label>
+        <select id="agentSelect" class="agent-select"></select>
+        
         <div id="agentDetails" class="agent-details"></div>
-        <div class="rail-footer"><div class="mini-stat"><span id="mcpCount">0</span><small>MCP servers</small></div><div class="mini-stat"><span id="toolCount">0</span><small>Available tools</small></div></div>
+
+        <!-- Multi-Chat Sessions Section -->
+        <div class="sessions-section">
+          <div class="sessions-header">
+            <span>Conversations</span>
+            <button id="sidebarNewChatBtn" class="new-chat-pill-btn" type="button" title="Start a fresh chat">+ New</button>
+          </div>
+          <div id="sessionsList" class="sessions-list">
+            <!-- Populated dynamically via JS -->
+          </div>
+        </div>
+
+        <div class="rail-footer">
+          <div class="mini-stat"><span id="mcpCount">3</span><small>MCP servers</small></div>
+          <div class="mini-stat"><span id="toolCount">0</span><small>Available tools</small></div>
+        </div>
       </aside>
+
       <section class="chat-panel">
-        <div class="chat-header"><div><span class="eyebrow">Conversation</span><h2 id="chatTitle">Select an agent to start</h2></div><button id="newChatButton" class="button secondary">New chat</button></div>
-        <div id="messageList" class="message-list"><div class="welcome-card"><div class="welcome-icon">✦</div><h3>Ask your agent anything</h3><p>Select an agent on the left, then send a message. The selected agent uses its configured memory, knowledge, and MCP permissions.</p></div></div>
-        <div id="thoughtPanel" class="thought-panel" hidden><div class="thought-title"><span class="thought-heading"><span class="pulse"></span>Live activity</span><button id="thoughtToggle" class="thought-toggle" type="button" aria-expanded="true" title="Minimize live activity">Minimize</button></div><div id="thoughtList"></div></div>
-        <div id="typingIndicator" class="typing" hidden><span></span><span></span><span></span><em>Agent is working</em></div>
-        <form id="chatForm" class="composer"><textarea id="messageInput" rows="1" placeholder="Message your agent..." disabled></textarea><button id="sendButton" class="send-button" type="submit" disabled aria-label="Send message">↑</button><div class="composer-meta"><span id="conversationLabel">New conversation</span><span>Enter to send · Shift+Enter for a new line</span></div></form>
+        <div class="chat-header">
+          <div>
+            <span class="eyebrow">Autonomous Session</span>
+            <h2 id="chatTitle">Luna</h2>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="newChatButton" class="button secondary">New chat</button>
+          </div>
+        </div>
+
+        <div id="messageList" class="message-list">
+          <div class="welcome-card">
+            <div class="welcome-icon">L</div>
+            <h3 id="welcomeHeadline">Ask Luna anything</h3>
+            <p id="welcomeSubhead">Type your prompt below. Luna automatically classifies intent, selects the right MCP tools across Operations, CRM, and Analytics, and streams verified responses.</p>
+          </div>
+        </div>
+
+        <div id="thoughtPanel" class="thought-panel" hidden>
+          <div class="thought-title">
+            <span class="thought-heading"><span class="pulse"></span>Live activity</span>
+            <button id="thoughtToggle" class="thought-toggle" type="button" aria-expanded="true" title="Minimize live activity">Minimize</button>
+          </div>
+          <div id="thoughtList"></div>
+        </div>
+
+        <div id="typingIndicator" class="typing" hidden>
+          <span></span><span></span><span></span><em>Luna is working</em>
+        </div>
+
+        <form id="chatForm" class="composer">
+          <textarea id="messageInput" rows="1" placeholder="Message Luna..." disabled></textarea>
+          <button id="sendButton" class="send-button" type="submit" disabled aria-label="Send message">Send</button>
+          <div class="composer-meta">
+            <span id="conversationLabel">New session</span>
+            <span>Enter to send &middot; Shift+Enter for a new line</span>
+          </div>
+        </form>
       </section>
     </section>
   </main>
-  <script src="/static/chat-rich.js?v=8"></script>
+
+  <script src="/static/chat-rich.js?v=14"></script>
 </body>
 </html>

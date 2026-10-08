@@ -4,6 +4,7 @@ from app.models.mcp import MCPServer
 from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
 from app.models.memory import Conversation, Message, Memory
 from app.models.execution import Execution, ExecutionStep
+from app.models.user import User
 from app.models.customer_operations import (
     CustomerAccount,
     CustomerOperationNote,
@@ -13,6 +14,7 @@ from app.models.customer_operations import (
 
 __all__ = [
     "Base",
+    "User",
     "Agent",
     "AgentTool",
     "MCPServer",

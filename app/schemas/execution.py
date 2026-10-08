@@ -14,6 +14,16 @@ class RunAgentRequest(BaseModel):
         description="Optional conversation ID for short-term memory",
         json_schema_extra={"example": "conv_001"}
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="Optional multi-chat session or user workspace ID",
+        json_schema_extra={"example": "session_001"}
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="Optional user ID for scoping multi-chat sessions and context",
+        json_schema_extra={"example": "usr_sarah_jenkins"}
+    )
 
 
 class SourceCitation(BaseModel):
@@ -42,6 +52,7 @@ class RunAgentResponse(BaseModel):
     execution_id: str
     agent_id: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
     answer: str
     sources: List[SourceCitation] = []
     tools_used: List[str] = []
@@ -57,6 +68,7 @@ class ExecutionTraceResponse(BaseModel):
     execution_id: str
     agent_id: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
     query: str
     final_answer: Optional[str] = None
     status: str

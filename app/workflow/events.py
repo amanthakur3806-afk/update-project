@@ -11,6 +11,9 @@ class AgentLoadedEvent(Event):
     agent_config: Dict[str, Any]
     query: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_profile: Optional[Dict[str, Any]] = None
     execution_id: str
     query_classification: Optional[Dict[str, Any]] = None
 
@@ -20,6 +23,9 @@ class MemoryAndRAGLoadedEvent(Event):
     agent_config: Dict[str, Any]
     query: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_profile: Optional[Dict[str, Any]] = None
     execution_id: str
     short_term_history: List[Dict[str, str]]
     long_term_facts: List[str]
@@ -32,6 +38,9 @@ class ToolPlanGeneratedEvent(Event):
     agent_config: Dict[str, Any]
     query: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_profile: Optional[Dict[str, Any]] = None
     execution_id: str
     short_term_history: List[Dict[str, str]]
     long_term_facts: List[str]
@@ -45,6 +54,9 @@ class ToolsExecutedEvent(Event):
     agent_config: Dict[str, Any]
     query: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_profile: Optional[Dict[str, Any]] = None
     execution_id: str
     short_term_history: List[Dict[str, str]]
     long_term_facts: List[str]
@@ -58,6 +70,9 @@ class ContextCondensedEvent(Event):
     agent_config: Dict[str, Any]
     query: str
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    user_profile: Optional[Dict[str, Any]] = None
     execution_id: str
     short_term_history: List[Dict[str, str]]
     long_term_facts: List[str]

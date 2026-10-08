@@ -17,6 +17,39 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+
+def ensure_schema_columns():
+    """Safely apply column additions for PostgreSQL / SQLite without destroying existing data."""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # executions table
+            try:
+                conn.execute(text("ALTER TABLE executions ADD COLUMN IF NOT EXISTS session_id VARCHAR(64);"))
+                conn.commit()
+            except Exception:
+                pass
+            # conversations table
+            try:
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS title VARCHAR(256) DEFAULT 'New Chat';"))
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS session_id VARCHAR(64);"))
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);"))
+                conn.commit()
+            except Exception:
+                pass
+            # memories table
+            try:
+                conn.execute(text("ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);"))
+                conn.commit()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+# Run safe migration on module load
+ensure_schema_columns()
+
+
 def get_db():
     db = SessionLocal()
     try:

@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models.agent import Agent, AgentTool
+from app.models.memory import Conversation
+from app.models.user import User
 from app.models.execution import Execution, ExecutionStep
 from app.mcp.client_manager import mcp_client_manager, ToolPermissionError
 from app.rag.embeddings import embeddings_provider
@@ -28,6 +30,7 @@ from app.workflow.subagent import TemporaryResearchSubAgent
 from app.workflow.llm_provider import llm_provider
 from app.services.progress import progress_bus
 from app.services.query_classifier import query_classifier
+from app.services.guardrails import alignment_guardrail
 from app.workflow.events import (
     AgentLoadedEvent,
     MemoryAndRAGLoadedEvent,
@@ -134,14 +137,44 @@ class AgentOrchestratorWorkflow(Workflow):
     Enterprise LlamaIndex Workflow orchestrating dynamic multi-MCP agents.
     """
 
+    @staticmethod
+    def _resolve_templated_arguments(
+        args: Dict[str, Any],
+        step_outputs: Dict[str, Any],
+        last_output: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Resolve dynamic step output forwarding (e.g. $step_1.customer_id or $prev.company_name)."""
+        resolved = dict(args)
+        for k, v in list(resolved.items()):
+            if isinstance(v, str) and v.startswith("$"):
+                val = v.strip()
+                if "." in val:
+                    step_ref, field = val[1:].split(".", 1)
+                    if step_ref == "prev" and last_output and isinstance(last_output, dict):
+                        if field in last_output:
+                            resolved[k] = last_output[field]
+                    elif step_ref in step_outputs and isinstance(step_outputs[step_ref], dict):
+                        if field in step_outputs[step_ref]:
+                            resolved[k] = step_outputs[step_ref][field]
+                else:
+                    step_ref = val[1:]
+                    if step_ref == "prev" and last_output is not None:
+                        resolved[k] = last_output
+                    elif step_ref in step_outputs:
+                        resolved[k] = step_outputs[step_ref]
+        return resolved
+
     @step
     async def step_load_agent(self, ev: StartEvent) -> AgentLoadedEvent:
-        """Step 1: Load agent configuration, permissions, and classify user query."""
+        """Step 1: Load agent configuration, permissions, user profile, and classify user query."""
         t0 = time.time()
         self._start_time = t0
         agent_id = ev.get("agent_id")
         query = ev.get("query")
         conversation_id = ev.get("conversation_id")
+        session_id = ev.get("session_id")
+        user_id = ev.get("user_id")
+        user_profile = ev.get("user_profile")
         execution_id = ev.get("execution_id", f"exec_{uuid.uuid4().hex[:12]}")
         await progress_bus.publish(execution_id, "Loading the selected agent and its permissions", "agent")
 
@@ -157,6 +190,19 @@ class AgentOrchestratorWorkflow(Workflow):
 
         db: Session = SessionLocal()
         try:
+            # Resolve user profile if user_id or conversation_id provided
+            if not user_profile:
+                from app.models.user import User
+                target_uid = user_id
+                if not target_uid and conversation_id:
+                    conv_rec = db.query(Conversation).filter(Conversation.conversation_id == conversation_id).first()
+                    if conv_rec and conv_rec.user_id:
+                        target_uid = conv_rec.user_id
+                if target_uid:
+                    u_rec = db.query(User).filter(User.user_id == target_uid).first()
+                    if u_rec:
+                        user_profile = u_rec.to_dict()
+
             agent = db.query(Agent).filter(Agent.agent_id == agent_id, Agent.enabled == True).first()
             if not agent:
                 raise ValueError(f"Agent with ID '{agent_id}' not found or disabled.")
@@ -177,11 +223,72 @@ class AgentOrchestratorWorkflow(Workflow):
                 "allowed_tools": allowed_tools
             }
 
+            # ----------------------------------------------------
+            # Enterprise Alignment Guardrail: Input Validation
+            # ----------------------------------------------------
+            guard_check = alignment_guardrail.validate_input(
+                query=query,
+                user_profile=user_profile,
+                agent_config=agent_config
+            )
+
+            if not guard_check.allowed:
+                await progress_bus.publish(
+                    execution_id,
+                    f"Alignment Guardrail [FLAGGED]: {guard_check.reason}",
+                    "guardrail"
+                )
+
+                execution_rec = Execution(
+                    execution_id=execution_id,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    query=query,
+                    status="blocked_by_guardrail",
+                    final_answer=guard_check.safe_response,
+                    duration_ms=round((time.time() - t0) * 1000, 2)
+                )
+                db.add(execution_rec)
+
+                step_rec = ExecutionStep(
+                    execution_id=execution_id,
+                    step_number=1,
+                    step_name="alignment_guardrail_check",
+                    input_payload={"query": query, "user_id": user_id},
+                    output_payload={"status": "blocked", "category": guard_check.category, "reason": guard_check.reason},
+                    duration_ms=round((time.time() - t0) * 1000, 2),
+                    status="blocked"
+                )
+                db.add(step_rec)
+                db.commit()
+
+                return StopEvent(
+                    result={
+                        "execution_id": execution_id,
+                        "agent_id": agent_id,
+                        "conversation_id": conversation_id,
+                        "session_id": session_id,
+                        "answer": guard_check.safe_response,
+                        "status": "blocked_by_guardrail",
+                        "sources": [],
+                        "tools_used": [],
+                        "duration_ms": round((time.time() - t0) * 1000, 2)
+                    }
+                )
+
+            await progress_bus.publish(
+                execution_id,
+                "Alignment Guardrail: Verified query against enterprise safety & compliance policies [PASSED]",
+                "guardrail"
+            )
+
             # Create Execution record in DB
             execution_rec = Execution(
                 execution_id=execution_id,
                 agent_id=agent_id,
                 conversation_id=conversation_id,
+                session_id=session_id,
                 query=query,
                 status="running"
             )
@@ -192,14 +299,15 @@ class AgentOrchestratorWorkflow(Workflow):
                 execution_id=execution_id,
                 step_number=1,
                 step_name="load_agent_and_query_classification",
-                input_payload={"agent_id": agent_id, "query": query},
+                input_payload={"agent_id": agent_id, "query": query, "session_id": session_id, "user_id": user_id},
                 output_payload={
                     "agent_name": agent.agent_name,
                     "category": agent_config["category"],
                     "allowed_tools": allowed_tools,
                     "query_type": classification.query_type,
                     "target_entities": classification.target_entities,
-                    "intent": classification.intent_summary
+                    "intent": classification.intent_summary,
+                    "authenticated_user": user_profile.get("username") if user_profile else "anonymous"
                 },
                 duration_ms=round((time.time() - t0) * 1000, 2),
                 status="completed"
@@ -215,6 +323,9 @@ class AgentOrchestratorWorkflow(Workflow):
             agent_config=agent_config,
             query=query,
             conversation_id=conversation_id,
+            session_id=session_id,
+            user_id=user_id,
+            user_profile=user_profile,
             execution_id=execution_id,
             query_classification=classification_dict
         )
@@ -244,7 +355,8 @@ class AgentOrchestratorWorkflow(Workflow):
                     db=db,
                     conversation_id=ev.conversation_id,
                     query=ev.query,
-                    entity_key=target_entity
+                    entity_key=target_entity,
+                    user_id=ev.user_id
                 )
                 if mem_cfg.get("short_term", True):
                     short_term_history = mem_data["short_term_history"]
@@ -297,6 +409,9 @@ class AgentOrchestratorWorkflow(Workflow):
             agent_config=agent_cfg,
             query=ev.query,
             conversation_id=ev.conversation_id,
+            session_id=ev.session_id,
+            user_id=ev.user_id,
+            user_profile=ev.user_profile,
             execution_id=ev.execution_id,
             short_term_history=short_term_history,
             long_term_facts=long_term_facts,
@@ -349,6 +464,9 @@ class AgentOrchestratorWorkflow(Workflow):
             agent_config=agent_cfg,
             query=ev.query,
             conversation_id=ev.conversation_id,
+            session_id=ev.session_id,
+            user_id=ev.user_id,
+            user_profile=ev.user_profile,
             execution_id=ev.execution_id,
             short_term_history=ev.short_term_history,
             long_term_facts=ev.long_term_facts,
@@ -359,12 +477,14 @@ class AgentOrchestratorWorkflow(Workflow):
 
     @step
     async def step_execute_tools(self, ev: ToolPlanGeneratedEvent) -> ToolsExecutedEvent:
-        """Step 4 & 5: Permission Check and Multi-MCP Tool Execution (CRM + Analytics)."""
+        """Step 4 & 5: Permission Check, Multi-MCP Tool Execution, Variable Forwarding & Self-Correction."""
         agent_cfg = ev.agent_config
         allowed_tools = agent_cfg.get("allowed_tools", [])
         tool_results = []
         completed_plan_ids = set()
         failed_plan_ids = set()
+        step_outputs: Dict[str, Any] = {}
+        last_output: Optional[Dict[str, Any]] = None
         db: Session = SessionLocal()
 
         current_step_num = 4
@@ -372,7 +492,7 @@ class AgentOrchestratorWorkflow(Workflow):
             for plan in ev.planned_tools:
                 t0 = time.time()
                 tool_name = plan["tool_name"]
-                arguments = plan.get("arguments", {})
+                raw_args = plan.get("arguments", {})
                 plan_id = plan.get("id", f"step_{current_step_num}")
                 dependencies = plan.get("depends_on", [])
                 blocked_dependencies = [dep for dep in dependencies if dep in failed_plan_ids]
@@ -381,15 +501,18 @@ class AgentOrchestratorWorkflow(Workflow):
                     db.add(ExecutionStep(
                         execution_id=ev.execution_id, step_number=current_step_num,
                         step_name=f"dependency_blocked:{tool_name}", tool_name=tool_name,
-                        input_payload=arguments, output_payload={"error": err_msg},
+                        input_payload=raw_args, output_payload={"error": err_msg},
                         duration_ms=0, status="skipped", error_message=err_msg))
                     db.commit()
                     failed_plan_ids.add(plan_id)
                     current_step_num += 1
                     continue
+
+                # 1. Dynamic Variable Resolution / Output Forwarding from Prior Steps
+                arguments = self._resolve_templated_arguments(raw_args, step_outputs, last_output)
                 await progress_bus.publish(ev.execution_id, f"Calling MCP tool: {tool_name}", "mcp")
 
-                # Permission Check
+                # 2. Permission Check
                 is_permitted = mcp_client_manager.check_tool_permission(tool_name, allowed_tools)
                 if not is_permitted:
                     err_msg = f"Permission Denied: Agent '{ev.agent_id}' is not authorized to execute tool '{tool_name}'."
@@ -415,13 +538,87 @@ class AgentOrchestratorWorkflow(Workflow):
                     failed_plan_ids.add(plan_id)
                     continue
 
-                # Multi-MCP Execution
-                res = await mcp_client_manager.execute_tool(
+                # 3. Alignment Guardrail on Tool Call & Arguments
+                tool_guard = alignment_guardrail.validate_tool_call(
                     tool_name=tool_name,
-                    arguments=arguments,
-                    allowed_tools=allowed_tools
+                    tool_args=arguments,
+                    user_profile=ev.user_profile,
+                    agent_config=agent_cfg
                 )
+                if not tool_guard.allowed:
+                    res = {
+                        "success": False,
+                        "error": f"Alignment Guardrail Blocked: {tool_guard.reason}",
+                        "duration_ms": 0.0,
+                        "tool_name": tool_name
+                    }
+                    await progress_bus.publish(
+                        ev.execution_id,
+                        f"Alignment Guardrail blocked tool {tool_name}: {tool_guard.reason}",
+                        "guardrail"
+                    )
+                else:
+                    # Multi-MCP Execution
+                    res = await mcp_client_manager.execute_tool(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        allowed_tools=allowed_tools
+                    )
+
+                # 4. Autonomous Self-Correction & Entity Disambiguation Fallback
+                # If a customer ID query was not found or failed, check if CRM directory search can auto-resolve it
+                res_dict = res.get("result") if isinstance(res.get("result"), dict) else {}
+                is_not_found = (
+                    res_dict.get("found") is False
+                    or "not found" in str(res_dict.get("error", "")).lower()
+                    or "not found" in str(res.get("error", "")).lower()
+                )
+                if is_not_found and "customer_id" in arguments and isinstance(arguments["customer_id"], str):
+                    target_id = arguments["customer_id"]
+                    if mcp_client_manager.check_tool_permission("CRM.search_customer", allowed_tools):
+                        search_res = await mcp_client_manager.execute_tool(
+                            tool_name="CRM.search_customer",
+                            arguments={"query": target_id},
+                            allowed_tools=allowed_tools
+                        )
+                        matches = search_res.get("result", {}).get("results", []) if search_res.get("success") else []
+                        if matches and matches[0].get("customer_id") and matches[0]["customer_id"] != target_id:
+                            resolved_id = matches[0]["customer_id"]
+                            # Record self-correction step in audit log
+                            db.add(ExecutionStep(
+                                execution_id=ev.execution_id,
+                                step_number=current_step_num,
+                                step_name=f"autonomous_self_correction:{tool_name}",
+                                tool_name="CRM.search_customer",
+                                input_payload={"original_id": target_id, "resolved_id": resolved_id},
+                                output_payload={"resolved_customer": matches[0]},
+                                duration_ms=search_res.get("duration_ms", 0.0),
+                                status="completed"
+                            ))
+                            db.commit()
+                            await progress_bus.publish(
+                                ev.execution_id,
+                                f"Self-Correction: Auto-resolved '{target_id}' to canonical ID '{resolved_id}'",
+                                "self_correction"
+                            )
+                            current_step_num += 1
+
+                            # Re-execute original tool with resolved canonical ID
+                            corrected_args = {**arguments, "customer_id": resolved_id}
+                            retry_res = await mcp_client_manager.execute_tool(
+                                tool_name=tool_name,
+                                arguments=corrected_args,
+                                allowed_tools=allowed_tools
+                            )
+                            if retry_res.get("success"):
+                                res = retry_res
+                                arguments = corrected_args
+
                 tool_results.append(res)
+                res_payload = res.get("result", {"error": res.get("error")})
+                step_outputs[plan_id] = res_payload
+                if res.get("success"):
+                    last_output = res_payload if isinstance(res_payload, dict) else {"output": res_payload}
 
                 step_rec = ExecutionStep(
                     execution_id=ev.execution_id,
@@ -429,7 +626,7 @@ class AgentOrchestratorWorkflow(Workflow):
                     step_name=f"execute_mcp_tool:{tool_name}",
                     tool_name=tool_name,
                     input_payload=arguments,
-                    output_payload=res.get("result", {"error": res.get("error")}),
+                    output_payload=res_payload,
                     duration_ms=res.get("duration_ms", 0.0),
                     status="completed" if res.get("success") else "failed",
                     error_message=res.get("error")
@@ -457,6 +654,9 @@ class AgentOrchestratorWorkflow(Workflow):
             agent_config=agent_cfg,
             query=ev.query,
             conversation_id=ev.conversation_id,
+            session_id=ev.session_id,
+            user_id=ev.user_id,
+            user_profile=ev.user_profile,
             execution_id=ev.execution_id,
             short_term_history=ev.short_term_history,
             long_term_facts=ev.long_term_facts,
@@ -514,6 +714,9 @@ class AgentOrchestratorWorkflow(Workflow):
             agent_config=agent_cfg,
             query=ev.query,
             conversation_id=ev.conversation_id,
+            session_id=ev.session_id,
+            user_id=ev.user_id,
+            user_profile=ev.user_profile,
             execution_id=ev.execution_id,
             short_term_history=ev.short_term_history,
             long_term_facts=ev.long_term_facts,
@@ -552,9 +755,16 @@ class AgentOrchestratorWorkflow(Workflow):
             long_term_facts=ev.long_term_facts,
             condensed_tool_summary=ev.condensed_tool_summary,
             retrieved_chunks=ev.retrieved_chunks,
+            user_profile=ev.user_profile,
             model=agent_cfg.get("model", "gpt-4o-mini"),
             temperature=agent_cfg.get("temperature", 0.2),
             on_token=handle_token
+        )
+
+        # Output Alignment & Secret Scrubbing Guardrail
+        final_answer, out_guard = alignment_guardrail.validate_output(
+            output_text=final_answer,
+            user_profile=ev.user_profile
         )
 
         # If live LLM streaming was not active (e.g. deterministic local mode), stream tokens in chunks
@@ -643,7 +853,9 @@ Timestamp:    {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
                     conversation_id=ev.conversation_id,
                     agent_id=ev.agent_id,
                     user_query=ev.query,
-                    assistant_response=final_answer
+                    assistant_response=final_answer,
+                    session_id=ev.session_id,
+                    user_id=ev.user_id
                 )
 
             db.commit()
@@ -669,6 +881,7 @@ Timestamp:    {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
                 "execution_id": ev.execution_id,
                 "agent_id": ev.agent_id,
                 "conversation_id": ev.conversation_id,
+                "session_id": ev.session_id,
                 "answer": final_answer,
                 "sources": sources,
                 "tools_used": tools_used,
@@ -689,4 +902,4 @@ def json_dumps(data: Any) -> str:
 
 
 def create_agent_workflow() -> AgentOrchestratorWorkflow:
-    return AgentOrchestratorWorkflow(timeout=60.0)
+    return AgentOrchestratorWorkflow(timeout=180.0)

@@ -118,7 +118,7 @@
   display: inline-block;
   width: 2px;
   height: 1.15em;
-  background: linear-gradient(to bottom, var(--brand), #818cf8);
+  background: var(--brand);
   margin-left: 3px;
   vertical-align: -0.15em;
   animation: cursor-blink 0.75s infinite;

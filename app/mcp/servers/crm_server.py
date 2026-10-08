@@ -39,15 +39,15 @@ class CRMMCPServer:
                 "name": "CRM.get_customer",
                 "server_id": self.server_id,
                 "description": (
-                    "Retrieve a comprehensive CRM profile for a customer by their unique ID. "
-                    "Returns company name, tier, SLA, stakeholders, contract value, and operational notes."
+                    "Retrieve the commercial CRM profile and stakeholder dossier for a customer. "
+                    "Returns company name, enterprise tier, commercial SLA terms, executive stakeholders, contract value, and relationship history."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Unique customer identifier, e.g. 'ABC', 'XYZ', 'ACME'",
+                            "description": "Unique customer identifier, e.g. 'ABC', 'XYZ', 'ACME', 'NOVA', 'VERTEX', 'QUANTUM'",
                         }
                     },
                     "required": ["customer_id"],
@@ -57,15 +57,15 @@ class CRMMCPServer:
                 "name": "CRM.search_customer",
                 "server_id": self.server_id,
                 "description": (
-                    "Search the CRM directory by company name, industry, or customer ID keyword. "
-                    "Returns a list of matching customer records."
+                    "Search the enterprise CRM customer directory across company names, industries, tiers, or customer ID keywords. "
+                    "Returns matching customer profiles."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search term to match against company name, industry, or customer ID",
+                            "description": "Search keyword matching company name, industry, or customer ID",
                         }
                     },
                     "required": ["query"],
@@ -75,19 +75,19 @@ class CRMMCPServer:
                 "name": "CRM.update_notes",
                 "server_id": self.server_id,
                 "description": (
-                    "Append an operational note to a customer's CRM record. "
-                    "Notes are timestamped automatically."
+                    "Append a strategic commercial or executive stakeholder meeting note to a customer's CRM record. "
+                    "Notes are timestamped automatically in UTC."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Unique customer ID",
+                            "description": "Unique customer ID, e.g. 'ABC', 'XYZ'",
                         },
                         "note": {
                             "type": "string",
-                            "description": "Note content to append to the customer record",
+                            "description": "Commercial or relationship note content to append",
                         },
                     },
                     "required": ["customer_id", "note"],

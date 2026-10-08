@@ -10,10 +10,10 @@
 }
 
 .user .bubble {
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  background: #4f46e5;
   color: #ffffff;
   font-size: 13.5px;
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
 }
 
 .assistant .bubble h2 {

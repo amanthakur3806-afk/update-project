@@ -9,6 +9,7 @@ class Execution(Base):
     execution_id = Column(String(64), primary_key=True, index=True)
     agent_id = Column(String(64), ForeignKey("agents.agent_id", ondelete="CASCADE"), nullable=False, index=True)
     conversation_id = Column(String(64), nullable=True, index=True)
+    session_id = Column(String(64), nullable=True, index=True)
     query = Column(Text, nullable=False)
     final_answer = Column(Text, nullable=True)
     status = Column(String(32), default="running", nullable=False)  # running, completed, failed

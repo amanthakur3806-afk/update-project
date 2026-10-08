@@ -4,10 +4,20 @@
   var agents = [], selected = null;
   var conversation = "chat_" + Date.now();
   var busy = false, executionStartedAt = 0;
+  var currentUser = null;
+  var authToken = localStorage.getItem("luna_auth_token") || null;
 
   var $ = function (name) {
     return document.getElementById(name);
   };
+
+  function authHeaders(extraHeaders) {
+    var headers = Object.assign({}, extraHeaders || {});
+    if (authToken) {
+      headers["Authorization"] = "Bearer " + authToken;
+    }
+    return headers;
+  }
 
   function esc(value) {
     return String(value == null ? "" : value).replace(
@@ -32,8 +42,66 @@
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   }
 
+  function unwrapJsonIfPresent(text) {
+    if (!text) return "";
+    var trimmed = String(text).trim();
+
+    var blockMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    var candidate = blockMatch ? blockMatch[1].trim() : trimmed;
+
+    if ((candidate.startsWith("{") && candidate.endsWith("}")) || (candidate.startsWith("[") && candidate.endsWith("]"))) {
+      try {
+        var parsed = JSON.parse(candidate);
+        if (typeof parsed === "object" && parsed !== null) {
+          var commonKeys = ["answer", "response", "message", "content", "summary", "result", "output", "text"];
+          for (var i = 0; i < commonKeys.length; i++) {
+            var k = commonKeys[i];
+            if (typeof parsed[k] === "string" && parsed[k].trim()) {
+              return unwrapJsonIfPresent(parsed[k]);
+            }
+          }
+          if (!Array.isArray(parsed)) {
+            var lines = [];
+            for (var key in parsed) {
+              if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+                var val = parsed[key];
+                var cleanKey = key.replace(/_/g, " ").replace(/\b\w/g, function (l) { return l.toUpperCase(); });
+                if (typeof val === "object" && val !== null) {
+                  val = JSON.stringify(val);
+                }
+                lines.push("- **" + cleanKey + "**: " + val);
+              }
+            }
+            return lines.join("\n");
+          } else {
+            var arrLines = [];
+            parsed.forEach(function (item) {
+              if (typeof item === "object" && item !== null) {
+                var parts = [];
+                for (var k in item) {
+                  if (Object.prototype.hasOwnProperty.call(item, k)) {
+                    var ck = k.replace(/_/g, " ").replace(/\b\w/g, function (l) { return l.toUpperCase(); });
+                    parts.push("**" + ck + "**: " + item[k]);
+                  }
+                }
+                arrLines.push("- " + parts.join(", "));
+              } else {
+                arrLines.push("- " + String(item));
+              }
+            });
+            return arrLines.join("\n");
+          }
+        }
+      } catch (e) {
+        // Not JSON
+      }
+    }
+    return text;
+  }
+
   function formatAnswer(value) {
     if (!value) return "";
+    value = unwrapJsonIfPresent(value);
     var lines = String(value).split(/\r?\n/);
     var html = [];
     var i = 0;
@@ -41,7 +109,6 @@
     while (i < lines.length) {
       var line = lines[i];
 
-      // Code Block
       if (/^```/.test(line)) {
         var lang = line.replace(/^```/, "").trim() || "code";
         var codeLines = [];
@@ -61,7 +128,6 @@
         continue;
       }
 
-      // Markdown Table
       if (/^\|.*\|$/.test(line) && i + 1 < lines.length && /^\|?\s*:?-{2,}/.test(lines[i + 1])) {
         var headerCells = line.split("|").slice(1, -1);
         var tableHtml = '<div class="table-wrapper"><table><thead><tr>';
@@ -70,7 +136,7 @@
         });
         tableHtml += '</tr></thead><tbody>';
 
-        i += 2; // skip header and separator
+        i += 2;
         while (i < lines.length && /^\|.*\|$/.test(lines[i])) {
           var rowCells = lines[i].split("|").slice(1, -1);
           tableHtml += '<tr>';
@@ -85,7 +151,6 @@
         continue;
       }
 
-      // Blockquote
       if (/^>\s+/.test(line)) {
         var quoteLines = [line.replace(/^>\s+/, "")];
         i++;
@@ -97,7 +162,6 @@
         continue;
       }
 
-      // Headers
       if (/^####\s+/.test(line)) {
         html.push('<h5>' + inline(line.replace(/^####\s+/, "")) + '</h5>');
       } else if (/^###\s+/.test(line)) {
@@ -106,13 +170,9 @@
         html.push('<h3>' + inline(line.replace(/^##\s+/, "")) + '</h3>');
       } else if (/^#\s+/.test(line)) {
         html.push('<h2>' + inline(line.replace(/^#\s+/, "")) + '</h2>');
-      }
-      // Horizontal Rule
-      else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
         html.push('<hr class="content-divider">');
-      }
-      // Unordered Lists
-      else if (/^\s*[-*]\s+/.test(line)) {
+      } else if (/^\s*[-*]\s+/.test(line)) {
         var listItems = [];
         while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
           listItems.push('<li>' + inline(lines[i].replace(/^\s*[-*]\s+/, "")) + '</li>');
@@ -120,9 +180,7 @@
         }
         html.push('<ul class="rich-list">' + listItems.join("") + '</ul>');
         continue;
-      }
-      // Ordered Lists
-      else if (/^\s*\d+\.\s+/.test(line)) {
+      } else if (/^\s*\d+\.\s+/.test(line)) {
         var numItems = [];
         while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
           numItems.push('<li>' + inline(lines[i].replace(/^\s*\d+\.\s+/, "")) + '</li>');
@@ -130,13 +188,9 @@
         }
         html.push('<ol class="rich-list">' + numItems.join("") + '</ol>');
         continue;
-      }
-      // Empty Line
-      else if (line.trim() === "") {
+      } else if (line.trim() === "") {
         html.push('<div class="spacer"></div>');
-      }
-      // Regular Paragraph
-      else {
+      } else {
         html.push('<p>' + inline(line) + '</p>');
       }
 
@@ -170,6 +224,13 @@
   }
 
   var SUGGESTIONS_MAP = {
+    "luna": [
+      "Give me a full dossier for ABC including ARR, SLA, and open tasks.",
+      "Analyze churn risk for XYZ and verify war-room SLA escalation policy.",
+      "Show operations health and open tasks for NOVA.",
+      "List all customers and their current statuses.",
+      "What are the multi-year volume discount guidelines for a 3-year contract?"
+    ],
     "customer_operations_agent": [
       "List all customers.",
       "Get operations details and tasks for NOVA.",
@@ -222,8 +283,7 @@
       '<span class="agent-tag model-tag">' + esc(a.model || "gpt-4o-mini") + '</span>' +
       '</div>';
 
-    // Suggestion Chips
-    var suggestions = SUGGESTIONS_MAP[a.agent_id] || [
+    var suggestions = SUGGESTIONS_MAP[a.agent_id] || SUGGESTIONS_MAP["luna"] || [
       "Hello! What can you help me with?",
       "List available tools and capabilities."
     ];
@@ -236,7 +296,6 @@
 
     $("agentDetails").innerHTML = html;
 
-    // Attach click handlers to prompt chips
     var chips = $("agentDetails").querySelectorAll(".prompt-chip");
     chips.forEach(function (chip) {
       chip.addEventListener("click", function () {
@@ -251,10 +310,496 @@
     enable(true);
   }
 
+  // --- Auth & User State Management ---
+
+  function showNotice(msg, isError) {
+    var notice = $("authNotice");
+    if (!notice) return;
+    if (!msg) {
+      notice.hidden = true;
+      notice.textContent = "";
+      return;
+    }
+    notice.hidden = false;
+    notice.className = "auth-notice " + (isError ? "error" : "success");
+    notice.innerHTML = (isError ? "<strong>[Error]</strong> " : "<strong>[OK]</strong> ") + esc(msg);
+  }
+
+  function renderUserMenu() {
+    var container = $("userMenuContainer");
+    if (!container) return;
+
+    if (currentUser) {
+      var initials = (currentUser.full_name || currentUser.username || "U")
+        .split(" ")
+        .map(function (n) { return n[0]; })
+        .join("")
+        .substring(0, 2)
+        .toUpperCase();
+
+      container.innerHTML =
+        '<div class="user-badge" id="userProfileBtn" title="' + esc(currentUser.full_name) + ' (' + esc(currentUser.role || 'Member') + ')">' +
+          '<div class="user-avatar">' + esc(initials) + '</div>' +
+          '<div class="user-info">' +
+            '<span class="user-name">' + esc(currentUser.full_name || currentUser.username) + '</span>' +
+            '<span class="user-role">' + esc(currentUser.role || 'Enterprise User') + '</span>' +
+          '</div>' +
+          '<button class="user-action-btn" id="switchUserBtn" type="button" title="Switch Account">Switch</button>' +
+          '<button class="user-action-btn" id="logoutBtn" type="button" title="Sign Out">Sign Out</button>' +
+        '</div>';
+
+      var logoutBtn = $("logoutBtn");
+      if (logoutBtn) {
+        logoutBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          logout();
+        });
+      }
+
+      var switchBtn = $("switchUserBtn");
+      if (switchBtn) {
+        switchBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          openAuthScreen("demo");
+        });
+      }
+
+      var profileBtn = $("userProfileBtn");
+      if (profileBtn) {
+        profileBtn.addEventListener("click", function () {
+          openAuthScreen("demo");
+        });
+      }
+    } else {
+      container.innerHTML = '<button id="authTriggerBtn" class="auth-cta-btn" type="button">Sign In / Switch Persona</button>';
+      var btn = $("authTriggerBtn");
+      if (btn) {
+        btn.addEventListener("click", function () {
+          openAuthScreen("login");
+        });
+      }
+    }
+
+    updateWelcomeBanner();
+  }
+
+  function updateWelcomeBanner() {
+    var head = $("welcomeHeadline");
+    var subhead = $("welcomeSubhead");
+    if (!head || !subhead) return;
+
+    if (currentUser) {
+      head.textContent = "Welcome back, " + (currentUser.full_name || currentUser.username);
+      subhead.textContent = (currentUser.role ? currentUser.role + " (" + (currentUser.department || "Enterprise") + ")" : "Enterprise Account") +
+        " · Luna is context-aware of your role and ready to orchestrate tools.";
+    } else {
+      head.textContent = "Ask Luna anything";
+      subhead.textContent = "Type your prompt below. Luna automatically classifies intent, selects the right MCP tools across Operations, CRM, and Analytics, and streams verified responses.";
+    }
+  }
+
+  function openAuthScreen(defaultTab) {
+    var screen = $("authScreen");
+    if (!screen) return;
+    screen.hidden = false;
+
+    var closeBtn = $("closeAuthScreenBtn");
+    if (closeBtn) {
+      closeBtn.hidden = !currentUser; // only show return button if already logged in
+    }
+
+    showNotice("", false);
+    switchAuthTab(defaultTab || "login");
+    loadDemoAccounts();
+  }
+
+  function closeAuthScreen() {
+    var screen = $("authScreen");
+    if (screen) screen.hidden = true;
+  }
+
+  function switchAuthTab(tabName) {
+    var tabs = document.querySelectorAll(".auth-tab-btn");
+    tabs.forEach(function (t) {
+      if (t.getAttribute("data-tab") === tabName) {
+        t.classList.add("active");
+      } else {
+        t.classList.remove("active");
+      }
+    });
+
+    var loginForm = $("loginForm");
+    var regForm = $("registerForm");
+    var demoContent = $("demoTabContent");
+
+    var title = $("authCardTitle");
+    var subtitle = $("authCardSubtitle");
+
+    if (tabName === "login") {
+      if (loginForm) loginForm.hidden = false;
+      if (regForm) regForm.hidden = true;
+      if (demoContent) demoContent.hidden = true;
+      if (title) title.textContent = "Sign In to Workspace";
+      if (subtitle) subtitle.textContent = "Enter your enterprise credentials to access your isolated sessions.";
+    } else if (tabName === "register") {
+      if (loginForm) loginForm.hidden = true;
+      if (regForm) regForm.hidden = false;
+      if (demoContent) demoContent.hidden = true;
+      if (title) title.textContent = "Create New Account";
+      if (subtitle) subtitle.textContent = "Set up your profile and responsibilities for personalized agent context.";
+    } else if (tabName === "demo") {
+      if (loginForm) loginForm.hidden = true;
+      if (regForm) regForm.hidden = true;
+      if (demoContent) demoContent.hidden = false;
+      if (title) title.textContent = "1-Click Demo Personas";
+      if (subtitle) subtitle.textContent = "Instantly explore Luna with pre-seeded enterprise roles and context.";
+    }
+
+    showNotice("", false);
+  }
+
+  function setButtonLoading(btn, isLoading, defaultText) {
+    if (!btn) return;
+    var txt = btn.querySelector(".btn-text");
+    var spnr = btn.querySelector(".btn-spinner");
+    btn.disabled = isLoading;
+    if (isLoading) {
+      if (txt) txt.textContent = "Please wait...";
+      if (spnr) spnr.hidden = false;
+    } else {
+      if (txt) txt.textContent = defaultText;
+      if (spnr) spnr.hidden = true;
+    }
+  }
+
+  function fetchCurrentUser() {
+    if (!authToken) {
+      currentUser = null;
+      renderUserMenu();
+      loadSessions();
+      openAuthScreen("login");
+      return Promise.resolve(null);
+    }
+
+    return fetch("/auth/me", {
+      headers: authHeaders()
+    })
+      .then(function (r) {
+        if (!r.ok) throw Error("Session expired or invalid");
+        return r.json();
+      })
+      .then(function (user) {
+        currentUser = user;
+        renderUserMenu();
+        closeAuthScreen();
+        loadSessions();
+        return user;
+      })
+      .catch(function () {
+        authToken = null;
+        currentUser = null;
+        localStorage.removeItem("luna_auth_token");
+        renderUserMenu();
+        loadSessions();
+        openAuthScreen("login");
+        return null;
+      });
+  }
+
+  function login(usernameOrEmail, password) {
+    var submitBtn = $("loginSubmitBtn");
+    setButtonLoading(submitBtn, true, "Sign In to Workspace");
+    showNotice("", false);
+
+    return fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username_or_email: usernameOrEmail,
+        password: password
+      })
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) {
+            throw Error(data.detail || "Invalid username or password.");
+          }
+          return data;
+        });
+      })
+      .then(function (res) {
+        setButtonLoading(submitBtn, false, "Sign In to Workspace");
+        authToken = res.access_token;
+        localStorage.setItem("luna_auth_token", authToken);
+        currentUser = res.user;
+        renderUserMenu();
+        closeAuthScreen();
+        reset();
+        loadSessions();
+      })
+      .catch(function (err) {
+        setButtonLoading(submitBtn, false, "Sign In to Workspace");
+        showNotice(err.message, true);
+      });
+  }
+
+  function register(formData) {
+    var submitBtn = $("regSubmitBtn");
+    setButtonLoading(submitBtn, true, "Create Account & Start Chatting");
+    showNotice("", false);
+
+    return fetch("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData)
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) {
+            throw Error(data.detail || "Registration failed. Please verify fields.");
+          }
+          return data;
+        });
+      })
+      .then(function (res) {
+        setButtonLoading(submitBtn, false, "Create Account & Start Chatting");
+        authToken = res.access_token;
+        localStorage.setItem("luna_auth_token", authToken);
+        currentUser = res.user;
+        renderUserMenu();
+        closeAuthScreen();
+        reset();
+        loadSessions();
+      })
+      .catch(function (err) {
+        setButtonLoading(submitBtn, false, "Create Account & Start Chatting");
+        showNotice(err.message, true);
+      });
+  }
+
+  function logout() {
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem("luna_auth_token");
+    renderUserMenu();
+    reset();
+    loadSessions();
+    openAuthScreen("login");
+  }
+
+  function loadDemoAccounts() {
+    var grid = $("demoAccountsGrid");
+    if (!grid) return;
+
+    grid.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">Loading enterprise personas...</div>';
+
+    fetch("/auth/demo-accounts")
+      .then(function (r) { return r.json(); })
+      .then(function (accounts) {
+        grid.innerHTML = "";
+        accounts.forEach(function (acc) {
+          var card = document.createElement("div");
+          card.className = "demo-persona-card";
+          if (currentUser && currentUser.username === acc.username) {
+            card.classList.add("active");
+          }
+
+          var initials = (acc.full_name || acc.username)
+            .split(" ")
+            .map(function (n) { return n[0]; })
+            .join("")
+            .substring(0, 2)
+            .toUpperCase();
+
+          card.innerHTML =
+            '<div class="demo-persona-head">' +
+              '<div class="demo-persona-user">' +
+                '<div class="demo-persona-avatar">' + esc(initials) + '</div>' +
+                '<div>' +
+                  '<div class="demo-persona-name">' + esc(acc.full_name) + '</div>' +
+                  '<div class="demo-persona-email-hint">@' + esc(acc.username) + ' &middot; ' + esc(acc.email) + '</div>' +
+                '</div>' +
+              '</div>' +
+              '<span class="demo-persona-role-badge">' + esc(acc.role) + '</span>' +
+            '</div>' +
+            '<div class="demo-persona-desc">' + esc(acc.description || acc.responsibilities || '') + '</div>' +
+            '<div class="demo-persona-action">' +
+              (currentUser && currentUser.username === acc.username ? '\u2713 Active Persona' : 'Sign in as this persona \u2192') +
+            '</div>';
+
+          card.addEventListener("click", function () {
+            login(acc.username, "LunaDemo2026!");
+          });
+
+          grid.appendChild(card);
+        });
+      })
+      .catch(function (err) {
+        grid.innerHTML = '<div style="font-size:12px;color:#ef4444;">Failed to load demo accounts.</div>';
+      });
+  }
+
+  // --- Multi-Chat Sessions Management ---
+
+  function loadSessions() {
+    var list = $("sessionsList");
+    if (!list) return;
+
+    fetch("/memory/conversations", {
+      headers: authHeaders()
+    })
+      .then(function (r) {
+        if (!r.ok) return [];
+        return r.json();
+      })
+      .then(function (convs) {
+        renderSessionsList(convs);
+      })
+      .catch(function (e) {
+        console.warn("Could not load conversations:", e);
+      });
+  }
+
+  function renderSessionsList(convs) {
+    var list = $("sessionsList");
+    if (!list) return;
+
+    list.innerHTML = "";
+
+    if (!convs || convs.length === 0) {
+      list.innerHTML = '<div class="sessions-empty">No conversations yet.<br>Start messaging below!</div>';
+      return;
+    }
+
+    convs.forEach(function (c) {
+      var item = document.createElement("div");
+      item.className = "session-item" + (c.conversation_id === conversation ? " active" : "");
+      item.dataset.cid = c.conversation_id;
+
+      var turnsBadge = c.turns_count ? '<span class="session-badge">' + c.turns_count + '</span>' : '';
+
+      item.innerHTML =
+        '<div class="session-title-wrap">' +
+          '<span class="session-icon">#</span>' +
+          '<span class="session-title" title="' + esc(c.title || c.conversation_id) + '">' + esc(c.title || "Chat Session") + '</span>' +
+        '</div>' +
+        '<div class="session-actions">' +
+          turnsBadge +
+          '<button type="button" class="session-del-btn" title="Delete conversation">&times;</button>' +
+        '</div>';
+
+      item.addEventListener("click", function (e) {
+        if (e.target.closest(".session-del-btn")) return;
+        switchSession(c.conversation_id);
+      });
+
+      var delBtn = item.querySelector(".session-del-btn");
+      if (delBtn) {
+        delBtn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          deleteSession(c.conversation_id);
+        });
+      }
+
+      list.appendChild(item);
+    });
+  }
+
+  function switchSession(newConversationId) {
+    conversation = newConversationId;
+    resetThoughts();
+
+    var labelEl = $("conversationLabel");
+    if (labelEl) labelEl.textContent = "Loading session...";
+
+    var items = document.querySelectorAll(".session-item");
+    items.forEach(function (it) {
+      if (it.dataset.cid === newConversationId) {
+        it.classList.add("active");
+      } else {
+        it.classList.remove("active");
+      }
+    });
+
+    fetch("/memory/conversations/" + encodeURIComponent(newConversationId), {
+      headers: authHeaders()
+    })
+      .then(function (r) {
+        if (!r.ok) throw Error("Could not load history (" + r.status + ")");
+        return r.json();
+      })
+      .then(function (data) {
+        var msgList = $("messageList");
+        msgList.innerHTML = "";
+
+        if (data.title) {
+          $("conversationLabel").textContent = data.title;
+        } else {
+          $("conversationLabel").textContent = "Session: " + newConversationId;
+        }
+
+        if (data.agent_id && agents && agents.length) {
+          var matchedAgent = agents.filter(function (a) { return a.agent_id === data.agent_id; })[0];
+          if (matchedAgent && (!selected || selected.agent_id !== data.agent_id)) {
+            var s = $("agentSelect");
+            if (s) s.value = matchedAgent.agent_id;
+            selected = matchedAgent;
+            $("chatTitle").textContent = matchedAgent.agent_name;
+          }
+        }
+
+        if (!data.messages || data.messages.length === 0) {
+          msgList.innerHTML =
+            '<div class="welcome-card">' +
+            '<div class="welcome-icon">L</div>' +
+            '<h3 id="welcomeHeadline">Ask Luna anything</h3>' +
+            '<p id="welcomeSubhead">This conversation is fresh and ready for your prompts.</p>' +
+            '</div>';
+          updateWelcomeBanner();
+        } else {
+          data.messages.forEach(function (m) {
+            addMessage(m.role, m.content);
+          });
+        }
+        msgList.scrollTop = msgList.scrollHeight;
+      })
+      .catch(function (err) {
+        console.error("switchSession error:", err);
+        var msgList = $("messageList");
+        if (msgList) {
+          msgList.innerHTML = '<div style="padding:20px;color:#dc2626;text-align:center;">Failed to load conversation: ' + esc(err.message) + '</div>';
+        }
+      });
+  }
+
+  function deleteSession(targetCid) {
+    if (!confirm("Are you sure you want to delete this conversation session?")) return;
+
+    fetch("/memory/conversations/" + encodeURIComponent(targetCid), {
+      method: "DELETE",
+      headers: authHeaders()
+    })
+      .then(function (r) {
+        if (!r.ok) throw Error("Failed to delete session");
+        return r.json();
+      })
+      .then(function () {
+        if (conversation === targetCid) {
+          reset();
+        }
+        loadSessions();
+      })
+      .catch(function (err) {
+        alert("Error deleting conversation: " + err.message);
+      });
+  }
+
   function load() {
     status("Connecting", false, false);
 
-    fetch("/agents?ts=" + Date.now())
+    fetch("/agents?ts=" + Date.now(), {
+      headers: authHeaders()
+    })
       .then(function (r) {
         if (!r.ok) throw Error("Agent API returned " + r.status);
         return r.json();
@@ -276,8 +821,9 @@
           s.appendChild(o);
         });
 
-        var currentSelectedId = selected ? selected.agent_id : (agents[0] ? agents[0].agent_id : null);
-        var targetAgent = agents.filter(function (a) { return a.agent_id === currentSelectedId; })[0] || agents[0] || null;
+        var lunaAgent = agents.filter(function (a) { return a.agent_id === "luna"; })[0];
+        var currentSelectedId = selected ? selected.agent_id : (lunaAgent ? "luna" : (agents[0] ? agents[0].agent_id : null));
+        var targetAgent = agents.filter(function (a) { return a.agent_id === currentSelectedId; })[0] || lunaAgent || agents[0] || null;
         
         if (s && targetAgent) {
           s.value = targetAgent.agent_id;
@@ -287,8 +833,8 @@
         status("Connected", true, false);
 
         return Promise.all([
-          fetch("/mcp/servers"),
-          fetch("/mcp/tools")
+          fetch("/mcp/servers", { headers: authHeaders() }),
+          fetch("/mcp/tools", { headers: authHeaders() })
         ]);
       })
       .then(function (rs) {
@@ -323,9 +869,13 @@
       ? '<span class="duration-pill">' + (meta.duration_ms / 1000).toFixed(2) + 's</span> '
       : "";
 
+    var authorLabel = role === "user"
+      ? (currentUser ? (currentUser.full_name || currentUser.username) : "You")
+      : "Luna";
+
     item.className = "message " + role;
     item.innerHTML =
-      '<div class="avatar">' + (role === "user" ? "You" : "AI") + '</div>' +
+      '<div class="avatar">' + esc(authorLabel.substring(0, 4)) + '</div>' +
       '<div class="bubble-wrap">' +
         '<div class="bubble">' + (role === "assistant" ? formatAnswer(text) : esc(text)) + '</div>' +
         '<div class="message-meta">' +
@@ -376,18 +926,25 @@
     conversation = "chat_" + Date.now();
     resetThoughts();
 
+    $("conversationLabel").textContent = "New session";
+
     $("messageList").innerHTML =
       '<div class="welcome-card">' +
-      '<div class="welcome-icon">✦</div>' +
-      '<h3>Ask your agent anything</h3>' +
-      '<p>Select an agent on the left, then send a message. The agent will plan and execute tools with live streaming responses.</p>' +
+      '<div class="welcome-icon">L</div>' +
+      '<h3 id="welcomeHeadline">Ask Luna anything</h3>' +
+      '<p id="welcomeSubhead">Type your request below. Luna dynamically plans and executes operations, CRM lookups, and analytics with live streaming responses.</p>' +
       '</div>';
     
+    updateWelcomeBanner();
+
     var inp = $("messageInput");
     if (inp) {
       inp.value = "";
       inp.style.height = "auto";
     }
+
+    var items = document.querySelectorAll(".session-item");
+    items.forEach(function (it) { it.classList.remove("active"); });
   }
 
   function send(e) {
@@ -430,7 +987,7 @@
       streamingItem = document.createElement("article");
       streamingItem.className = "message assistant streaming";
       streamingItem.innerHTML =
-        '<div class="avatar">AI</div>' +
+        '<div class="avatar">Luna</div>' +
         '<div class="bubble-wrap">' +
           '<div class="bubble"><span class="typing-cursor"></span></div>' +
           '<div class="message-meta"><time>' + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + '</time></div>' +
@@ -476,6 +1033,7 @@
 
       busy = false;
       enable(true);
+      loadSessions();
     }
 
     function tickTypewriter() {
@@ -496,11 +1054,6 @@
         return;
       }
 
-      // Smooth adaptive speed curve:
-      // Small buffer (1-20 chars): 1 char every 18ms (natural human/AI typing cadence)
-      // Medium buffer (20-60 chars): 2-3 chars every 15ms (smooth brisk flow)
-      // Large buffer (60-150 chars): 4-8 chars every 12ms (fast catch-up)
-      // Massive buffer (150+ chars): 12-20 chars every 8ms (instantaneous catch-up)
       var charsToAdvance = 1;
       var delay = 18;
 
@@ -542,13 +1095,14 @@
       "/agents/" + encodeURIComponent(selected.agent_id) + "/stream",
       {
         method: "POST",
-        headers: {
+        headers: authHeaders({
           "Content-Type": "application/json",
           "Accept": "text/event-stream"
-        },
+        }),
         body: JSON.stringify({
           query: query,
-          conversation_id: conversation
+          conversation_id: conversation,
+          user_id: currentUser ? currentUser.user_id : null
         })
       }
     )
@@ -599,11 +1153,9 @@
                 if (typing) typing.hidden = true;
                 networkComplete = true;
 
-                // If no tokens were streamed at all (or if targetText is empty), enqueue full answer
                 if (targetText.length === 0 && finalData.answer) {
                   enqueueDelta(finalData.answer);
                 } else if (finalData.answer && finalData.answer.length > targetText.length) {
-                  // Catch up with any tail difference
                   targetText = finalData.answer;
                 }
 
@@ -645,6 +1197,12 @@
 
     $("refreshButton").addEventListener("click", load);
     $("newChatButton").addEventListener("click", reset);
+    
+    var sideNewBtn = $("sidebarNewChatBtn");
+    if (sideNewBtn) {
+      sideNewBtn.addEventListener("click", reset);
+    }
+
     $("thoughtToggle").addEventListener("click", toggleThoughts);
     $("chatForm").addEventListener("submit", send);
 
@@ -657,14 +1215,114 @@
         }
       });
 
-      // Auto-growing textarea
       textarea.addEventListener("input", function () {
         this.style.height = "auto";
         this.style.height = Math.min(this.scrollHeight, 120) + "px";
       });
     }
 
-    load();
+    // Modal Close Button
+    var closeBtn = $("closeAuthScreenBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", closeAuthScreen);
+    }
+
+    // Tab buttons
+    var tabs = document.querySelectorAll(".auth-tab-btn");
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        switchAuthTab(this.getAttribute("data-tab"));
+      });
+    });
+
+    // Sub links
+    var linkReg = $("linkToRegister");
+    if (linkReg) {
+      linkReg.addEventListener("click", function (e) {
+        e.preventDefault();
+        switchAuthTab("register");
+      });
+    }
+    var linkDemo = $("linkToDemo");
+    if (linkDemo) {
+      linkDemo.addEventListener("click", function (e) {
+        e.preventDefault();
+        switchAuthTab("demo");
+      });
+    }
+    var linkLog = $("linkToLogin");
+    if (linkLog) {
+      linkLog.addEventListener("click", function (e) {
+        e.preventDefault();
+        switchAuthTab("login");
+      });
+    }
+
+    // Guest Continue Button
+    var guestBtn = $("guestContinueBtn");
+    if (guestBtn) {
+      guestBtn.addEventListener("click", function () {
+        closeAuthScreen();
+      });
+    }
+
+    // Login Form Submit
+    var loginForm = $("loginForm");
+    if (loginForm) {
+      loginForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var id = $("loginId").value.trim();
+        var pwd = $("loginPassword").value;
+        if (!id || !pwd) {
+          showNotice("Please enter your username/email and password.", true);
+          return;
+        }
+        login(id, pwd);
+      });
+    }
+
+    // Register Form Submit
+    var regForm = $("registerForm");
+    if (regForm) {
+      regForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var fullName = $("regFullName").value.trim();
+        var username = $("regUsername").value.trim();
+        var email = $("regEmail").value.trim();
+        var password = $("regPassword").value;
+        var role = $("regRole").value.trim() || null;
+        var department = $("regDepartment").value.trim() || null;
+        var responsibilities = $("regResponsibilities").value.trim() || null;
+
+        if (!fullName || !username || !email || !password) {
+          showNotice("Please fill in all required fields marked with *.", true);
+          return;
+        }
+
+        if (password.length < 6) {
+          showNotice("Password must be at least 6 characters long.", true);
+          return;
+        }
+
+        var formData = {
+          full_name: fullName,
+          username: username,
+          email: email,
+          password: password,
+          role: role,
+          department: department,
+          responsibilities: responsibilities
+        };
+
+        register(formData);
+      });
+    }
+
+    // Initialize state
+    fetchCurrentUser().then(function () {
+      load();
+    });
+
     setInterval(load, 30000);
   });
 }());

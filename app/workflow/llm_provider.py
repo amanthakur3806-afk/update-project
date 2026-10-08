@@ -14,12 +14,52 @@ import asyncio
 import re
 import json
 import logging
+import random
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 from app.config import settings
 from app.services.query_classifier import query_classifier
 from openai import OpenAI, AsyncOpenAI
 
 logger = logging.getLogger("llm_provider")
+
+
+def clean_llm_markdown_output(output: str) -> str:
+    """Ensure output is clean Markdown prose, unwrapping JSON structures if accidentally generated."""
+    if not output:
+        return ""
+    text = output.strip()
+
+    # Check if text is enclosed in ```json ... ``` codeblock
+    json_block_match = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```$", text, re.IGNORECASE)
+    candidate_json = json_block_match.group(1).strip() if json_block_match else text
+
+    if (candidate_json.startswith("{") and candidate_json.endswith("}")) or (candidate_json.startswith("[") and candidate_json.endswith("]")):
+        try:
+            parsed = json.loads(candidate_json)
+            if isinstance(parsed, dict):
+                # Look for typical answer fields
+                for key in ["response", "answer", "final_answer", "content", "text", "message", "summary", "result", "output"]:
+                    if key in parsed and isinstance(parsed[key], str) and parsed[key].strip():
+                        return clean_llm_markdown_output(parsed[key].strip())
+                # If it's a dict representing an operation or customer, format as clean Markdown
+                formatted_lines = []
+                for k, v in parsed.items():
+                    k_clean = k.replace("_", " ").title()
+                    formatted_lines.append(f"- **{k_clean}**: {v}")
+                return "\n".join(formatted_lines)
+            elif isinstance(parsed, list):
+                formatted_lines = []
+                for item in parsed:
+                    if isinstance(item, dict):
+                        fields = [f"**{k.replace('_', ' ').title()}**: {v}" for k, v in item.items()]
+                        formatted_lines.append("- " + ", ".join(fields))
+                    else:
+                        formatted_lines.append(f"- {item}")
+                return "\n".join(formatted_lines)
+        except Exception:
+            pass
+
+    return text
 
 
 class LLMProvider:
@@ -89,6 +129,64 @@ class LLMProvider:
                 logger.warning(f"Failed to initialize OpenAI async client: {e}")
 
         return None, "local"
+
+    def extract_user_facts(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Extract durable user facts, business context, ongoing project responsibilities,
+        and preferences using LLM when available, filtering out emotional venting and transient questions.
+        """
+        client, ptype = self._get_client()
+        if client is None:
+            return []
+
+        prompt = (
+            "You are an intelligent memory distillation agent for an enterprise AI assistant.\n"
+            "Analyze the following user message and extract ONLY durable, important facts about:\n"
+            "- The user's role, responsibilities, or current projects (e.g., 'User is working to fix Abc revenue').\n"
+            "- Specific business situations, metrics, or risks mentioned (e.g., 'Abc revenue is projected to decline by 12%').\n"
+            "- Specific user preferences (e.g., formatting preferences, timezone, communication style).\n\n"
+            "STRICT FILTERING GUIDELINES:\n"
+            "1. DO NOT extract emotional venting, complaints about salary/coworkers, existential despair, or personal frustrations (e.g., 'others are useless', 'feel to leave and start a new life', 'got no money').\n"
+            "2. DO NOT extract transient queries, greetings, or questions (e.g., 'how are we doing what all projects are active?').\n"
+            "3. Formulate each extracted fact concisely in neutral, objective third-person prose.\n"
+            "4. If no durable facts or business situations are present, return an empty JSON array [].\n\n"
+            f"User Message:\n\"\"\"{query}\"\"\"\n\n"
+            "Return ONLY a JSON array of objects with the exact schema:\n"
+            "[{\"fact\": \"string\", \"type\": \"user_context\" | \"user_preference\" | \"business_metric\", \"importance\": 1.0 to 1.5}]\n"
+            "Do not include explanation or markdown fences outside the JSON."
+        )
+
+        try:
+            target_model = settings.GROQ_MODEL if ptype == "groq" else settings.OPENAI_MODEL
+            resp = client.chat.completions.create(
+                model=target_model,
+                messages=[
+                    {"role": "system", "content": "You extract durable business facts and user preferences from user messages into JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0,
+                max_tokens=300
+            )
+            raw = resp.choices[0].message.content.strip()
+            # Clean possible markdown wrapping
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                valid = []
+                for item in parsed:
+                    if isinstance(item, dict) and "fact" in item and item["fact"].strip():
+                        valid.append({
+                            "fact": item["fact"].strip(),
+                            "type": item.get("type", "user_context"),
+                            "importance": float(item.get("importance", 1.2))
+                        })
+                return valid
+        except Exception as e:
+            logger.warning(f"LLM fact extraction failed or bypassed: {e}")
+
+        return []
 
     def plan_tools(
         self,
@@ -306,6 +404,7 @@ class LLMProvider:
         long_term_facts: List[str],
         condensed_tool_summary: str,
         retrieved_chunks: List[Dict[str, Any]],
+        user_profile: Optional[Dict[str, Any]] = None,
         model: str = "gpt-4o-mini",
         temperature: float = 0.2,
         max_tokens: int = 800,
@@ -313,7 +412,7 @@ class LLMProvider:
     ) -> str:
         """
         Synthesizes the final answer combining playbook instructions, memory, verified tool findings,
-        and RAG snippets. Supports live Groq / OpenAI or grounded local synthesis.
+        user profile context, and RAG snippets. Supports live Groq / OpenAI or grounded local synthesis.
         """
         client, ptype = self._get_client()
 
@@ -326,7 +425,12 @@ class LLMProvider:
             "2. If a tool executed successfully (e.g. Operations.create_customer, Operations.update_customer_status), "
             "confirm the action clearly to the user. Never ask for confirmation of an action that has already completed.\n"
             "3. If a tool failed or returned not found, clearly state the error or absence of data.\n"
-            "4. Never claim an action occurred unless verified by successful tool execution."
+            "4. Never claim an action occurred unless verified by successful tool execution.\n\n"
+            "=== STRICT RESPONSE FORMAT RULES ===\n"
+            "- Always format your entire response in elegant, clear, conversational Markdown prose.\n"
+            "- Use readable headings (##, ###), bullet lists, and tables where helpful.\n"
+            "- NEVER return raw JSON, JSON objects ({...}), JSON code blocks, or dictionary schemas unless the user explicitly requested JSON.\n"
+            "- Write natural sentences to describe operations and actions."
         )
 
         messages = [
@@ -334,11 +438,26 @@ class LLMProvider:
         ]
 
         context_parts = []
+        if user_profile:
+            user_context_block = [
+                "### Authenticated User Profile & Cross-Chat Context:",
+                f"- Name: {user_profile.get('full_name')} (@{user_profile.get('username')})",
+                f"- Role & Department: {user_profile.get('role')} | {user_profile.get('department')}",
+                f"- Primary Responsibilities: {user_profile.get('responsibilities') or 'General operations'}"
+            ]
+            user_facts = [f for f in (long_term_facts or []) if "[User Context]" in f or "Preference:" in f or "Context:" in f or "Profile:" in f]
+            if user_facts:
+                user_context_block.append("- Learned User Facts & Preferences across all conversations:")
+                for uf in user_facts:
+                    user_context_block.append(f"  * {uf}")
+            context_parts.append("\n".join(user_context_block))
+
         if condensed_tool_summary:
             context_parts.append("### VERIFIED TOOL EXECUTION RESULTS:\n" + condensed_tool_summary)
 
-        if long_term_facts:
-            context_parts.append("### Long-Term Memory / Known Facts:\n" + "\n".join([f"- {f}" for f in long_term_facts]))
+        entity_facts = [f for f in (long_term_facts or []) if not ("[User Context]" in f or "Preference:" in f or "Context:" in f or "Profile:" in f)]
+        if entity_facts:
+            context_parts.append("### Long-Term Memory / Entity Facts:\n" + "\n".join([f"- {f}" for f in entity_facts]))
 
         if retrieved_chunks:
             chunk_texts = []
@@ -358,49 +477,61 @@ class LLMProvider:
         final_user_prompt = (
             f"User Request: {query}\n\n"
             f"=== CONTEXT & VERIFIED DATA ===\n{context_str}\n\n"
-            "Please provide a structured, verified response strictly derived from the verified data above."
+            "Please provide a structured, verified Markdown response strictly derived from the verified data above. Do NOT output raw JSON format."
         )
         messages.append({"role": "user", "content": final_user_prompt})
 
         # Try live completion if Groq or OpenAI is configured
         if client is not None:
             target_model = settings.GROQ_MODEL if ptype == "groq" else (model or settings.OPENAI_MODEL)
-            try:
-                if on_token is not None:
-                    completion = client.chat.completions.create(
-                        model=target_model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        messages=messages,
-                        stream=True
-                    )
+            max_retries = 3
+            base_delay = 0.5
+            for attempt in range(max_retries):
+                try:
+                    if on_token is not None:
+                        completion = client.chat.completions.create(
+                            model=target_model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            messages=messages,
+                            stream=True
+                        )
 
-                    full_answer = []
-                    for chunk in completion:
-                        delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
-                        if delta:
-                            full_answer.append(delta)
-                            try:
-                                on_token(delta)
-                            except Exception:
-                                pass
+                        full_answer = []
+                        for chunk in completion:
+                            delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
+                            if delta:
+                                full_answer.append(delta)
+                                try:
+                                    on_token(delta)
+                                except Exception:
+                                    pass
 
-                    ans = "".join(full_answer)
-                    if ans and ans.strip():
-                        return ans
-                else:
-                    completion = client.chat.completions.create(
-                        model=target_model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        messages=messages,
-                        stream=False
-                    )
-                    ans = completion.choices[0].message.content or ""
-                    if ans and ans.strip():
-                        return ans
-            except Exception as e:
-                logger.warning(f"Live LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
+                        ans = "".join(full_answer)
+                        if ans and ans.strip():
+                            return clean_llm_markdown_output(ans)
+                    else:
+                        completion = client.chat.completions.create(
+                            model=target_model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            messages=messages,
+                            stream=False
+                        )
+                        ans = completion.choices[0].message.content or ""
+                        if ans and ans.strip():
+                            return clean_llm_markdown_output(ans)
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    is_rate_limit = any(k in err_str for k in ["429", "rate_limit", "too many requests", "rate limit"])
+                    if is_rate_limit and attempt < max_retries - 1:
+                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0.1, 0.4)
+                        logger.warning(f"Live LLM call ({ptype}) hit rate limit (429). Retrying in {sleep_time:.2f}s (attempt {attempt+1}/{max_retries})...")
+                        time.sleep(sleep_time)
+                    else:
+                        logger.warning(f"Live LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
+                        break
 
         # Grounded Local Synthesis Engine (Deterministic offline mode when no API keys are configured)
         return self._local_grounded_synthesize(
@@ -408,7 +539,8 @@ class LLMProvider:
             query=query,
             long_term_facts=long_term_facts,
             condensed_tool_summary=condensed_tool_summary,
-            retrieved_chunks=retrieved_chunks
+            retrieved_chunks=retrieved_chunks,
+            user_profile=user_profile
         )
 
     async def synthesize_response_async(
@@ -421,13 +553,14 @@ class LLMProvider:
         long_term_facts: List[str],
         condensed_tool_summary: str,
         retrieved_chunks: List[Dict[str, Any]],
+        user_profile: Optional[Dict[str, Any]] = None,
         model: str = "gpt-4o-mini",
         temperature: float = 0.2,
         max_tokens: int = 800,
         on_token: Optional[Callable[[str], Any]] = None
     ) -> str:
         """
-        Asynchronously synthesizes the final answer with true non-blocking token streaming.
+        Asynchronously synthesizes the final answer with true non-blocking token streaming and jittered exponential backoff.
         """
         async_client, ptype = self._get_async_client()
 
@@ -440,7 +573,12 @@ class LLMProvider:
             "2. If a tool executed successfully (e.g. Operations.create_customer, Operations.update_customer_status), "
             "confirm the action clearly to the user. Never ask for confirmation of an action that has already completed.\n"
             "3. If a tool failed or returned not found, clearly state the error or absence of data.\n"
-            "4. Never claim an action occurred unless verified by successful tool execution."
+            "4. Never claim an action occurred unless verified by successful tool execution.\n\n"
+            "=== STRICT RESPONSE FORMAT RULES ===\n"
+            "- Always format your entire response in elegant, clear, conversational Markdown prose.\n"
+            "- Use readable headings (##, ###), bullet lists, and tables where helpful.\n"
+            "- NEVER return raw JSON, JSON objects ({...}), JSON code blocks, or dictionary schemas unless the user explicitly requested JSON.\n"
+            "- Write natural sentences to describe operations and actions."
         )
 
         messages = [
@@ -448,11 +586,26 @@ class LLMProvider:
         ]
 
         context_parts = []
+        if user_profile:
+            user_context_block = [
+                "### Authenticated User Profile & Cross-Chat Context:",
+                f"- Name: {user_profile.get('full_name')} (@{user_profile.get('username')})",
+                f"- Role & Department: {user_profile.get('role')} | {user_profile.get('department')}",
+                f"- Primary Responsibilities: {user_profile.get('responsibilities') or 'General operations'}"
+            ]
+            user_facts = [f for f in (long_term_facts or []) if "[User Context]" in f or "Preference:" in f or "Context:" in f or "Profile:" in f]
+            if user_facts:
+                user_context_block.append("- Learned User Facts & Preferences across all conversations:")
+                for uf in user_facts:
+                    user_context_block.append(f"  * {uf}")
+            context_parts.append("\n".join(user_context_block))
+
         if condensed_tool_summary:
             context_parts.append("### VERIFIED TOOL EXECUTION RESULTS:\n" + condensed_tool_summary)
 
-        if long_term_facts:
-            context_parts.append("### Long-Term Memory / Known Facts:\n" + "\n".join([f"- {f}" for f in long_term_facts]))
+        entity_facts = [f for f in (long_term_facts or []) if not ("[User Context]" in f or "Preference:" in f or "Context:" in f or "Profile:" in f)]
+        if entity_facts:
+            context_parts.append("### Long-Term Memory / Entity Facts:\n" + "\n".join([f"- {f}" for f in entity_facts]))
 
         if retrieved_chunks:
             chunk_texts = []
@@ -471,53 +624,65 @@ class LLMProvider:
         final_user_prompt = (
             f"User Request: {query}\n\n"
             f"=== CONTEXT & VERIFIED DATA ===\n{context_str}\n\n"
-            "Please provide a structured, verified response strictly derived from the verified data above."
+            "Please provide a structured, verified Markdown response strictly derived from the verified data above. Do NOT output raw JSON format."
         )
         messages.append({"role": "user", "content": final_user_prompt})
 
         # Try live async completion if Groq or OpenAI is configured
         if async_client is not None:
             target_model = settings.GROQ_MODEL if ptype == "groq" else (model or settings.OPENAI_MODEL)
-            try:
-                if on_token is not None:
-                    completion = await async_client.chat.completions.create(
-                        model=target_model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        messages=messages,
-                        stream=True
-                    )
+            max_retries = 3
+            base_delay = 0.5
+            for attempt in range(max_retries):
+                try:
+                    if on_token is not None:
+                        completion = await async_client.chat.completions.create(
+                            model=target_model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            messages=messages,
+                            stream=True
+                        )
 
-                    full_answer = []
-                    async for chunk in completion:
-                        delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
-                        if delta:
-                            full_answer.append(delta)
-                            try:
-                                res = on_token(delta)
-                                if asyncio.iscoroutine(res):
-                                    await res
-                            except Exception:
-                                pass
-                            # Give event loop a cycle to dispatch SSE queue chunk to network
-                            await asyncio.sleep(0.002)
+                        full_answer = []
+                        async for chunk in completion:
+                            delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
+                            if delta:
+                                full_answer.append(delta)
+                                try:
+                                    res = on_token(delta)
+                                    if asyncio.iscoroutine(res):
+                                        await res
+                                except Exception:
+                                    pass
+                                # Give event loop a cycle to dispatch SSE queue chunk to network
+                                await asyncio.sleep(0.002)
 
-                    ans = "".join(full_answer)
-                    if ans and ans.strip():
-                        return ans
-                else:
-                    completion = await async_client.chat.completions.create(
-                        model=target_model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        messages=messages,
-                        stream=False
-                    )
-                    ans = completion.choices[0].message.content or ""
-                    if ans and ans.strip():
-                        return ans
-            except Exception as e:
-                logger.warning(f"Live async LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
+                        ans = "".join(full_answer)
+                        if ans and ans.strip():
+                            return clean_llm_markdown_output(ans)
+                    else:
+                        completion = await async_client.chat.completions.create(
+                            model=target_model,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            messages=messages,
+                            stream=False
+                        )
+                        ans = completion.choices[0].message.content or ""
+                        if ans and ans.strip():
+                            return clean_llm_markdown_output(ans)
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    is_rate_limit = any(k in err_str for k in ["429", "rate_limit", "too many requests", "rate limit"])
+                    if is_rate_limit and attempt < max_retries - 1:
+                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0.1, 0.4)
+                        logger.warning(f"Live async LLM call ({ptype}) hit rate limit (429). Retrying in {sleep_time:.2f}s (attempt {attempt+1}/{max_retries})...")
+                        await asyncio.sleep(sleep_time)
+                    else:
+                        logger.warning(f"Live async LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
+                        break
 
         # Grounded Local Synthesis Engine fallback
         return self._local_grounded_synthesize(
@@ -525,7 +690,8 @@ class LLMProvider:
             query=query,
             long_term_facts=long_term_facts,
             condensed_tool_summary=condensed_tool_summary,
-            retrieved_chunks=retrieved_chunks
+            retrieved_chunks=retrieved_chunks,
+            user_profile=user_profile
         )
 
     def _local_grounded_synthesize(
@@ -534,7 +700,8 @@ class LLMProvider:
         query: str,
         long_term_facts: List[str],
         condensed_tool_summary: str,
-        retrieved_chunks: List[Dict[str, Any]]
+        retrieved_chunks: List[Dict[str, Any]],
+        user_profile: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Dynamically synthesizes output strictly derived from actual evidence.
@@ -543,7 +710,34 @@ class LLMProvider:
         lines = []
         lines.append("## Executive Summary & Customer Dossier")
         lines.append(f"**Agent**: {agent_name} | **Engine**: [GROUNDED VERIFIED ENGINE]")
+        if user_profile:
+            lines.append(f"**Requester**: {user_profile.get('full_name')} ({user_profile.get('role')}, {user_profile.get('department')})")
         lines.append("> **Audit Status**: Verified via Multi-MCP Tool Execution & Structured Provenance\n")
+
+        # Direct user memory / profile questions
+        user_query_lower = query.lower()
+        if any(k in user_query_lower for k in ["who am i", "about me", "my profile", "my role", "my responsibilities", "my preference", "remember about me", "my context", "what do you know about me", "what do you remember"]):
+            lines = ["## User Context & Persistent Memory Profile"]
+            if user_profile:
+                lines.append(f"**User**: {user_profile.get('full_name')} (@{user_profile.get('username')})")
+                lines.append(f"**Role & Department**: {user_profile.get('role')} | {user_profile.get('department')}")
+                lines.append(f"**Primary Focus & Duties**: {user_profile.get('responsibilities') or 'General enterprise operations'}")
+                if user_profile.get("email"):
+                    lines.append(f"**Email**: {user_profile.get('email')}")
+            else:
+                lines.append("You are currently browsing as an anonymous user.")
+
+            user_facts = [f for f in (long_term_facts or []) if "[User Context]" in f or "Preference:" in f or "Context:" in f or "Profile:" in f]
+            if user_facts:
+                lines.append("\n### Persistent Memories Learned Across Conversations")
+                for uf in user_facts:
+                    clean_uf = uf.replace("[User Context]: ", "")
+                    lines.append(f"- {clean_uf}")
+            else:
+                lines.append("\n### Persistent Memories")
+                lines.append("- No custom preferences or facts recorded yet. As you chat across sessions, Luna automatically learns and remembers your preferences and project notes.")
+
+            return "\n".join(lines)
 
         # Operations Actions (Create, Update, Note, Task, List, Audit)
         if "operations" in condensed_tool_summary.lower() or "operation succeeded" in condensed_tool_summary.lower():
@@ -551,7 +745,10 @@ class LLMProvider:
             for item in condensed_tool_summary.split("\n\n"):
                 if item.strip():
                     lines.append(f"- {item.strip()}")
-            lines.append("\nThe requested customer operation was successfully completed and recorded in the audit log.")
+            if "create" in query.lower() and ("customer" in query.lower() or "id" in query.lower()):
+                lines.append(f"\nThe customer operation was successfully completed for: **{query.strip()}** and recorded in the audit log.")
+            else:
+                lines.append("\nThe requested customer operation was successfully completed and recorded in the audit log.")
             return "\n".join(lines)
 
         has_verified = False

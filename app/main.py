@@ -1,6 +1,6 @@
 """
 FastAPI Application Entry Point
-Nexus AI: Orchestrated Multi-MCP AI Agent Operations Platform
+Luna: Autonomous Multi-MCP Agent Operations Platform
 """
 from pathlib import Path
 from fastapi import FastAPI
@@ -15,6 +15,7 @@ from app.api.knowledge import router as knowledge_router
 from app.api.mcp import router as mcp_router
 from app.api.system import router as system_router
 from app.api.memory import router as memory_router
+from app.api.auth import router as auth_router
 from app.seed_data import seed_database
 
 from contextlib import asynccontextmanager
@@ -28,9 +29,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nexus AI: Multi-MCP Agent Operations Platform",
+    title="Luna",
     description="""
-Production-grade AI agent operations platform coordinating multiple Model Context Protocol (MCP) servers,
+Autonomous agent operations platform coordinating multiple Model Context Protocol (MCP) servers,
 LlamaIndex Workflows, dynamic agent-level permissions, FAISS vector search, and dual-tier memory.
     """,
     version="2.0.0",
@@ -52,6 +53,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Include API Routers
 app.include_router(system_router)
+app.include_router(auth_router)
 app.include_router(agents_router)
 app.include_router(executions_router)
 app.include_router(knowledge_router)
@@ -69,7 +71,7 @@ def serve_dashboard():
 def health_check():
     return {
         "status": "healthy",
-        "service": "Nexus AI Multi-MCP Agent Operations Platform",
+        "service": "Luna",
         "version": "2.0.0"
     }
 

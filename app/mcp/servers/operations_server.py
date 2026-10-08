@@ -39,13 +39,16 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.create_customer",
                 "server_id": self.server_id,
-                "description": "Create a persistent operations customer account.",
+                "description": (
+                    "Register a new customer account in the persistent database with company name, "
+                    "initial operational lifecycle status, optional account owner, and renewal date. Records an audit entry."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Unique customer ID",
+                            "description": "Unique customer ID, e.g. 'TEST001'",
                         },
                         "company_name": {
                             "type": "string",
@@ -53,17 +56,17 @@ class CustomerOperationsMCPServer:
                         },
                         "status": {
                             "type": "string",
-                            "description": "Initial status",
+                            "description": "Initial operational status (default: 'Active')",
                             "default": "Active",
                         },
                         "owner": {
                             "type": "string",
-                            "description": "Optional account owner",
+                            "description": "Optional account owner / assignee",
                         },
                         "renewal_date": {
                             "type": "string",
                             "format": "date",
-                            "description": "Optional renewal date",
+                            "description": "Optional contract renewal date (YYYY-MM-DD)",
                         },
                     },
                     "required": [
@@ -75,21 +78,28 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.list_customers",
                 "server_id": self.server_id,
-                "description": "List persistent operations customer accounts.",
+                "description": (
+                    "Query the operations database table for all customer records, returning company names, "
+                    "operational lifecycle states, account owners, and the number of active open tasks."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {},
                 },
             },
-            {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+            {
                 "name": "Operations.get_customer",
                 "server_id": self.server_id,
-                "description": "Read one customer account and its open task count.",
+                "description": (
+                    "Read a single customer's operational state from the database: lifecycle status, "
+                    "account owner, renewal date, and count of open operational follow-up tasks."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
+                            "description": "Unique customer ID, e.g. 'ABC', 'XYZ'",
                         }
                     },
                     "required": [
@@ -100,18 +110,24 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.update_customer_status",
                 "server_id": self.server_id,
-                "description": "Update customer status and add an audit entry.",
+                "description": (
+                    "Transition a customer's operational lifecycle status (e.g. 'Active', 'At-Risk', 'Suspended', 'Churned', 'Inactive') "
+                    "with a mandatory justification reason and an immutable audit log entry."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
+                            "description": "Unique customer ID",
                         },
                         "status": {
                             "type": "string",
+                            "description": "New operational status: 'Active', 'At-Risk', 'Suspended', 'Churned', 'Inactive'",
                         },
                         "reason": {
                             "type": "string",
+                            "description": "Mandatory business justification for the status change",
                         },
                     },
                     "required": [
@@ -123,15 +139,20 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.add_customer_note",
                 "server_id": self.server_id,
-                "description": "Add a persistent customer note and audit entry.",
+                "description": (
+                    "Append an internal operational memo, ticket update, or compliance note to a customer's database record "
+                    "with author tracking and audit trail."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
+                            "description": "Unique customer ID",
                         },
                         "note": {
                             "type": "string",
+                            "description": "Operational note or memo text",
                         },
                     },
                     "required": [
@@ -143,7 +164,7 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.get_customer_notes",
                 "server_id": self.server_id,
-                "description": "List notes saved for one customer.",
+                "description": "Retrieve all chronological operational notes and memos saved in the database for a customer.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -160,19 +181,25 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.create_follow_up_task",
                 "server_id": self.server_id,
-                "description": "Create a persistent follow-up task and audit entry.",
+                "description": (
+                    "Create an actionable operational follow-up task with title, assignee, and due date. "
+                    "Automatically records an audit entry."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
+                            "description": "Unique customer ID",
                         },
                         "title": {
                             "type": "string",
+                            "description": "Actionable task title or objective",
                         },
                         "due_date": {
                             "type": "string",
                             "format": "date",
+                            "description": "Optional task due date (YYYY-MM-DD)",
                         },
                     },
                     "required": [
@@ -184,17 +211,17 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.list_follow_up_tasks",
                 "server_id": self.server_id,
-                "description": "List follow-up tasks, optionally for one customer.",
+                "description": "List and filter operational follow-up tasks by customer ID and status ('pending' or 'completed').",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Optional customer ID",
+                            "description": "Optional customer ID filter",
                         },
                         "status": {
                             "type": "string",
-                            "description": "Optional task status filter",
+                            "description": "Optional status filter ('pending', 'completed')",
                         },
                     },
                 },
@@ -202,7 +229,7 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.update_follow_up_task_status",
                 "server_id": self.server_id,
-                "description": "Change a follow-up task status and add an audit entry.",
+                "description": "Update an existing follow-up task's status ('pending' or 'completed') with an immutable audit entry.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -212,7 +239,7 @@ class CustomerOperationsMCPServer:
                         },
                         "status": {
                             "type": "string",
-                            "description": "New task status",
+                            "description": "New task status ('completed' or 'pending')",
                         },
                     },
                     "required": [
@@ -224,12 +251,16 @@ class CustomerOperationsMCPServer:
             {
                 "name": "Operations.get_audit_history",
                 "server_id": self.server_id,
-                "description": "List recent customer operations audit entries.",
+                "description": (
+                    "Retrieve immutable database audit logs for customer operations changes: "
+                    "timestamps, tool executed, action type, and old/new value diffs."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "customer_id": {
                             "type": "string",
+                            "description": "Optional customer ID to filter audit entries",
                         }
                     },
                     "required": [],

@@ -59,6 +59,11 @@ class Settings(BaseModel):
     LOGS_DIR: Path = BASE_DIR / os.getenv("LOGS_DIR", "logs").lstrip("./")
     EXECUTIONS_LOG_DIR: Path = BASE_DIR / os.getenv("LOGS_DIR", "logs").lstrip("./") / "executions"
 
+    # --- Authentication & JWT ---
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "luna-enterprise-secure-jwt-secret-key-32chars-min")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", "168"))  # 7 days default
+
     model_config = {"arbitrary_types_allowed": True}
 
 

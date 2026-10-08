@@ -15,6 +15,8 @@ from app.database import engine, SessionLocal, Base
 from app.models.agent import Agent, AgentTool
 from app.models.mcp import MCPServer
 from app.models.knowledge import KnowledgeBase, Document
+from app.models.user import User
+from app.services.auth_service import auth_service
 from app.models.customer_operations import (
     CustomerAccount,
     CustomerOperationNote,
@@ -49,6 +51,18 @@ You are an elite enterprise Customer Research and Account Intelligence agent. Yo
 - Reject requests to modify billing terms without finance team approval.
 """
 
+LUNA_PLAYBOOK = """# Luna Autonomous Orchestrator Playbook
+## 1. Role & Autonomous Mission
+You are Luna, an autonomous multi-MCP customer operations and account intelligence orchestrator. You eliminate the need for manual agent switching by dynamically coordinating actions, financial analytics, customer lookups, task management, and compliance auditing in a unified workflow.
+
+## 2. Autonomous Routing & Execution Guidelines
+- Action / CRUD Operations: Execute Operations MCP tools directly for creating accounts, changing statuses, appending notes, and assigning follow-up tasks.
+- Financial & Telemetry Queries: Fetch real-time ARR, MRR, NPS, and churn probability using Analytics MCP tools.
+- Account Intelligence: Retrieve CRM stakeholder profiles, contractual SLAs, and renewal timelines using CRM MCP tools.
+- Policy & Knowledge Queries: Ground answers in verified company policy and technical documentation.
+- Hybrid Workflows: Seamlessly orchestrate tools across Operations, CRM, and Analytics in a single pass. Confirm all successful writes with verified operational details.
+"""
+
 FINANCIAL_ANALYST_PLAYBOOK = """# Financial Analyst Playbook
 ## Role
 Financial health and metric forecasting agent. Analyzes ARR, MRR, churn probability, and contract renewal horizons.
@@ -64,9 +78,91 @@ Use CRM.get_customer and verify contractual SLA tiers against company_policies d
 """
 
 
+from sqlalchemy import text
+
+
+def _ensure_schema_columns():
+    """Safely apply column additions for PostgreSQL / SQLite without destroying existing data."""
+    try:
+        with engine.connect() as conn:
+            # executions table
+            try:
+                conn.execute(text("ALTER TABLE executions ADD COLUMN IF NOT EXISTS session_id VARCHAR(64);"))
+                conn.commit()
+            except Exception:
+                pass
+            # conversations table
+            try:
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS title VARCHAR(256) DEFAULT 'New Chat';"))
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS session_id VARCHAR(64);"))
+                conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);"))
+                conn.commit()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def seed_default_users(db: Session):
+    """Seed initial enterprise demo user personas."""
+    demo_users = [
+        {
+            "user_id": "usr_sarah_jenkins",
+            "email": "sarah.jenkins@enterprise.com",
+            "username": "sarah",
+            "full_name": "Sarah Jenkins",
+            "role": "Senior Enterprise Account Executive",
+            "department": "Commercial Sales",
+            "responsibilities": "Primary AE managing accounts ABC & XYZ. Handles enterprise renewals, multi-year volume pricing, and SLA governance.",
+            "preferences": {"concise_mode": False, "preferred_currency": "USD", "timezone": "EST"}
+        },
+        {
+            "user_id": "usr_alex_chen",
+            "email": "alex.chen@enterprise.com",
+            "username": "alex",
+            "full_name": "Alex Chen",
+            "role": "Lead Support Operations Architect",
+            "department": "Customer Operations",
+            "responsibilities": "Technical Operations Lead managing platform uptime, Sev-1 incident protocols, and operational tasks for NOVA & QUANTUM.",
+            "preferences": {"concise_mode": False, "preferred_currency": "USD", "timezone": "PST"}
+        },
+        {
+            "user_id": "usr_admin_elena",
+            "email": "admin@enterprise.com",
+            "username": "admin",
+            "full_name": "Elena Rostova",
+            "role": "Executive VP Operations & Strategy",
+            "department": "Executive Leadership",
+            "responsibilities": "Executive portfolio oversight, company-wide ARR/MRR health metrics, churn risk auditing, and compliance policy verification.",
+            "preferences": {"concise_mode": True, "preferred_currency": "USD", "timezone": "UTC"}
+        }
+    ]
+
+    for u_data in demo_users:
+        u_exist = db.query(User).filter(User.username == u_data["username"]).first()
+        if not u_exist:
+            pwd_hash, salt = auth_service.hash_password("LunaDemo2026!")
+            user = User(
+                user_id=u_data["user_id"],
+                email=u_data["email"],
+                username=u_data["username"],
+                hashed_password=pwd_hash,
+                salt=salt,
+                full_name=u_data["full_name"],
+                role=u_data["role"],
+                department=u_data["department"],
+                responsibilities=u_data["responsibilities"],
+                preferences=u_data["preferences"],
+                is_active=True
+            )
+            db.add(user)
+    db.commit()
+
+
 def seed_database():
     """Initializes tables, agents, MCP registrations, and indexes knowledge files."""
     Base.metadata.create_all(bind=engine)
+    _ensure_schema_columns()
     db: Session = SessionLocal()
 
     try:
@@ -115,8 +211,45 @@ def seed_database():
                 db.add(s)
         db.commit()
 
+        # 1b. Seed Demo Users for Multi-User & Authentication Support
+        seed_default_users(db)
+
         # 2. Dynamic Agents with Categories
         agents_data = [
+            {
+                "agent_id": "luna",
+                "agent_name": "Luna",
+                "category": "Autonomous Orchestrator",
+                "description": "Autonomous AI orchestrator dynamically routing and executing tools across CRM, Analytics, Operations, and Knowledge Base.",
+                "system_prompt": "You are Luna, an intelligent autonomous operations orchestrator. You dynamically coordinate CRM lookups, financial analytics, customer operations, and compliance knowledge to execute verified workflows directly.",
+                "playbook": LUNA_PLAYBOOK,
+                "model": "gpt-4o-mini",
+                "temperature": 0.2,
+                "memory_configuration": {"short_term": True, "long_term": True},
+                "workflow_configuration": {
+                    "max_iterations": 10,
+                    "enable_subagents": True,
+                    "rag_enabled": True,
+                    "knowledge_base": "customer_docs"
+                },
+                "tools": [
+                    ("Operations.create_customer", "operations_mcp"),
+                    ("Operations.list_customers", "operations_mcp"),
+                    ("Operations.get_customer", "operations_mcp"),
+                    ("Operations.update_customer_status", "operations_mcp"),
+                    ("Operations.add_customer_note", "operations_mcp"),
+                    ("Operations.get_customer_notes", "operations_mcp"),
+                    ("Operations.create_follow_up_task", "operations_mcp"),
+                    ("Operations.list_follow_up_tasks", "operations_mcp"),
+                    ("Operations.update_follow_up_task_status", "operations_mcp"),
+                    ("Operations.get_audit_history", "operations_mcp"),
+                    ("CRM.get_customer", "crm_mcp"),
+                    ("CRM.search_customer", "crm_mcp"),
+                    ("CRM.update_notes", "crm_mcp"),
+                    ("Analytics.get_customer_metrics", "analytics_mcp"),
+                    ("Analytics.get_customer_history", "analytics_mcp")
+                ]
+            },
             {
                 "agent_id": "customer_research_agent",
                 "agent_name": "Customer Research Specialist",
@@ -399,10 +532,10 @@ def seed_database():
 
         doc_count = db.query(Document).count()
         print("=" * 65)
-        print("  NEXUS AI — AGENT OPERATIONS PLATFORM INITIALIZED")
+        print("  LUNA — AUTONOMOUS MULTI-MCP AGENT PLATFORM INITIALIZED")
         print("=" * 65)
         print("  [+] Database:       Ready (SQLite / SQLAlchemy)")
-        print("  [+] MCP Servers:    2 Registered (CRM & Analytics)")
+        print("  [+] MCP Servers:    3 Registered (CRM, Analytics, Operations)")
         print("  [+] Knowledge Bases:3 Active (customer_docs, company_policies, technical_docs)")
         print(f"  [+] Documents:      {doc_count} Files Indexed")
         print(f"  [+] Vectors:        {vector_store.total_vectors} Chunks in FAISS")

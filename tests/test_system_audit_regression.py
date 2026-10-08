@@ -342,3 +342,60 @@ async def test_20_dependency_failure_skips_dependent_step():
     dependencies = ["step_1"]
     blocked = [dep for dep in dependencies if dep in failed_plan_ids]
     assert blocked == ["step_1"]
+
+
+# ----------------------------------------------------------------------
+# TEST 21: Argument templating & step output forwarding
+# ----------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_21_argument_templating_and_output_forwarding():
+    wf = create_agent_workflow()
+    step_outputs = {
+        "step_1": {"customer_id": "ABC", "company_name": "ABC Global Logistics"},
+        "step_2": {"arr": 1200000, "status": "Active"}
+    }
+    raw_args = {
+        "customer_id": "$step_1.customer_id",
+        "company": "$step_1.company_name",
+        "metric_arr": "$step_2.arr",
+        "direct_val": "StaticValue"
+    }
+    resolved = wf._resolve_templated_arguments(raw_args, step_outputs)
+    assert resolved["customer_id"] == "ABC"
+    assert resolved["company"] == "ABC Global Logistics"
+    assert resolved["metric_arr"] == 1200000
+    assert resolved["direct_val"] == "StaticValue"
+
+
+# ----------------------------------------------------------------------
+# TEST 22: Autonomous self-correction & natural language entity resolution
+# ----------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_22_autonomous_self_correction_entity_resolution():
+    # Verify CRM search resolves "NovaHealth" to canonical ID "NOVA"
+    search_res = await mcp_client_manager.execute_tool(
+        tool_name="CRM.search_customer",
+        arguments={"query": "NovaHealth"},
+        allowed_tools=["CRM.search_customer", "CRM.get_customer"]
+    )
+    assert search_res["success"] is True
+    assert len(search_res["result"]["results"]) > 0
+    assert search_res["result"]["results"][0]["customer_id"] == "NOVA"
+
+
+# ----------------------------------------------------------------------
+# TEST 23: Luna autonomous multi-mcp workflow execution
+# ----------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_23_luna_autonomous_multi_domain_execution():
+    wf = create_agent_workflow()
+    result = await wf.run(
+        agent_id="luna",
+        query="Give me an operational and financial breakdown for NovaHealth Solutions.",
+        conversation_id="test_luna_autonomous"
+    )
+    assert result["status"] == "completed"
+    assert result["agent_id"] == "luna"
+    assert len(result["answer"]) > 50
+    assert len(result["tools_used"]) > 0
+

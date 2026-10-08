@@ -101,3 +101,63 @@ def test_stream_agent_api():
     assert len(tokens) > 0
     assert complete is not None
     assert complete["status"] == "completed"
+
+
+def test_multi_chat_session_lifecycle():
+    import uuid
+    cid = f"test_multi_chat_{uuid.uuid4().hex[:8]}"
+    sid = f"sess_{uuid.uuid4().hex[:8]}"
+
+    # 1. Create a conversation with session_id
+    create_res = client.post(
+        "/memory/conversations",
+        json={
+            "conversation_id": cid,
+            "agent_id": "luna",
+            "title": "Account Review Session",
+            "session_id": sid
+        }
+    )
+    assert create_res.status_code == 201
+    assert create_res.json()["conversation_id"] == cid
+    assert create_res.json()["session_id"] == sid
+
+    # 2. List conversations by session_id
+    list_res = client.get(f"/memory/conversations?session_id={sid}")
+    assert list_res.status_code == 200
+    convs = list_res.json()
+    assert len(convs) >= 1
+    assert convs[0]["conversation_id"] == cid
+    assert convs[0]["title"] == "Account Review Session"
+
+    # 3. Rename conversation title
+    patch_res = client.patch(
+        f"/memory/conversations/{cid}",
+        json={"title": "Renamed Operations Chat"}
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["title"] == "Renamed Operations Chat"
+
+    # 4. Run agent query inside this conversation session
+    run_res = client.post(
+        "/agents/luna/run",
+        json={
+            "query": "Lookup customer NovaHealth details",
+            "conversation_id": cid,
+            "session_id": sid
+        }
+    )
+    assert run_res.status_code == 200
+    assert run_res.json()["status"] == "completed"
+
+    # 5. Get full conversation history
+    detail_res = client.get(f"/memory/conversations/{cid}")
+    assert detail_res.status_code == 200
+    detail = detail_res.json()
+    assert len(detail["messages"]) >= 2
+    assert detail["title"] == "Renamed Operations Chat"
+
+    # 6. Delete conversation
+    del_res = client.delete(f"/memory/conversations/{cid}")
+    assert del_res.status_code == 200
+    assert del_res.json()["success"] is True

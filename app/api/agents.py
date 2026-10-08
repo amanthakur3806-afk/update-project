@@ -2,7 +2,7 @@
 Agent Management & Execution API Endpoints
 """
 
-from typing import List
+from typing import List, Optional, Dict, Any
 import asyncio
 import json
 import uuid
@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.agent import Agent, AgentTool
+from app.models.user import User
+from app.services.auth_service import get_current_user_optional
 from app.schemas.agent import (
     AgentCreate,
     AgentUpdate,
@@ -478,6 +480,7 @@ async def run_agent(
         examples=["customer_research_agent"]
     ),
     payload: RunAgentRequest = ...,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
 
@@ -504,35 +507,30 @@ async def run_agent(
 
     workflow = create_agent_workflow()
 
+    effective_user_id = getattr(payload, "user_id", None) or (current_user.user_id if current_user else None)
+    user_profile_data = current_user.to_dict() if current_user else None
+
     result = await workflow.run(
         agent_id=agent_id,
         query=payload.query,
-        conversation_id=payload.conversation_id
+        conversation_id=payload.conversation_id,
+        session_id=payload.session_id,
+        user_id=effective_user_id,
+        user_profile=user_profile_data
     )
 
     return RunAgentResponse(
         execution_id=result["execution_id"],
         agent_id=result["agent_id"],
-        conversation_id=result.get(
-            "conversation_id"
-        ),
+        conversation_id=result.get("conversation_id"),
+        session_id=result.get("session_id"),
         answer=result["answer"],
-        sources=result.get(
-            "sources",
-            []
-        ),
-        tools_used=result.get(
-            "tools_used",
-            []
-        ),
-        query_classification=result.get(
-            "query_classification"
-        ),
+        sources=result.get("sources", []),
+        tools_used=result.get("tools_used", []),
+        query_classification=result.get("query_classification"),
         status=result["status"],
         duration_ms=result["duration_ms"],
-        prompt_file=result.get(
-            "prompt_file"
-        )
+        prompt_file=result.get("prompt_file")
     )
 
 
@@ -547,6 +545,7 @@ async def run_agent(
 async def stream_agent(
     agent_id: str = Path(...),
     payload: RunAgentRequest = ...,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
 
@@ -592,6 +591,9 @@ async def stream_agent(
     # 4. SSE event generator
     # --------------------------------------------------------
 
+    effective_user_id = getattr(payload, "user_id", None) or (current_user.user_id if current_user else None)
+    user_profile_data = current_user.to_dict() if current_user else None
+
     async def events():
 
         workflow = create_agent_workflow()
@@ -603,9 +605,10 @@ async def stream_agent(
             workflow.run(
                 agent_id=agent_id,
                 query=payload.query,
-                conversation_id=(
-                    payload.conversation_id
-                ),
+                conversation_id=payload.conversation_id,
+                session_id=payload.session_id,
+                user_id=effective_user_id,
+                user_profile=user_profile_data,
                 execution_id=execution_id
             )
         )
