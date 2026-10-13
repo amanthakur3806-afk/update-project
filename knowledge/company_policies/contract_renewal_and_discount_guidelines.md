@@ -13,7 +13,8 @@
 - **High-Volume Telemetry Tiers**: Accounts processing over 50M API events/month qualify for tiered burst discounts of 25%.
 
 ## 3. Churn Mitigation Authority & Escalations
-- For accounts identified with elevated churn risk (>25% churn probability, e.g. XYZ, QUANTUM), Account Executives are pre-authorized to offer:
+- For accounts identified with elevated churn risk or active contract renewal horizons (e.g. Stripe November 2026 renewal, Shopify December 2026 renewal), Account Executives (Sarah Jenkins, Alex Chen) are pre-authorized to offer:
   - 1 quarter of complimentary Platinum TAM coverage.
-  - Dedicated latency tuning and infrastructure optimization by platform engineering.
-  - Flexible quarterly billing terms.
+  - Dedicated latency tuning and infrastructure optimization by platform engineering (e.g. eBPF socket bypass, Vitess shard balancing).
+  - Flexible semi-annual or quarterly wire billing terms.
+  - Pre-approved Black Friday or holiday burst allowances with zero overage penalty multipliers.

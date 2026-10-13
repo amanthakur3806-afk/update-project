@@ -55,7 +55,7 @@ def test_run_agent_api():
     response = client.post(
         "/agents/customer_research_agent/run",
         json={
-            "query": "Give me a complete summary of customer ABC including recent activity and internal documentation.",
+            "query": "Give me a complete summary of customer SPOTIFY including recent activity and internal documentation.",
             "conversation_id": "api_test_conv"
         }
     )
@@ -82,7 +82,7 @@ def test_stream_agent_api():
     response = client.post(
         "/agents/customer_research_agent/stream",
         json={
-            "query": "Give me a summary of ABC",
+            "query": "Give me a summary of SPOTIFY",
             "conversation_id": "test_stream_conv"
         },
         headers={"Accept": "text/event-stream"}

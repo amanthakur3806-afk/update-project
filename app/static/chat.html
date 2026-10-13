@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Luna - Autonomous Multi-MCP Workspace</title>
-  <link rel="stylesheet" href="/static/chat.css?v=8">
-  <link rel="stylesheet" href="/static/chat-live.css?v=11">
-  <link rel="stylesheet" href="/static/chat-format.css?v=5">
-  <link rel="stylesheet" href="/static/chat-polish.css?v=5">
-  <link rel="stylesheet" href="/static/chat-scroll.css?v=5">
-  <link rel="stylesheet" href="/static/chat-auth.css?v=4">
+  <link rel="stylesheet" href="/static/chat.css?v=9">
+  <link rel="stylesheet" href="/static/chat-live.css?v=12">
+  <link rel="stylesheet" href="/static/chat-format.css?v=6">
+  <link rel="stylesheet" href="/static/chat-polish.css?v=6">
+  <link rel="stylesheet" href="/static/chat-scroll.css?v=6">
+  <link rel="stylesheet" href="/static/chat-auth.css?v=6">
+  <link rel="stylesheet" href="/static/chat-theme.css?v=4">
 </head>
 <body>
 
-  <!-- Full-Screen Enterprise Auth Screen & Portal (Solid, Immersive, No chat bleed-through) -->
-  <div id="authScreen" class="auth-screen-overlay" hidden>
+  <!-- Dedicated Enterprise Auth Page (Standalone Full Page, No Modal, No Popup) -->
+  <div id="authScreen" class="auth-page-view">
     <div class="auth-screen-container">
       
       <!-- Left Hero Showcase Panel -->
@@ -68,22 +69,21 @@
       <!-- Right Auth Card Panel -->
       <div class="auth-card-panel">
         <div class="auth-card-header">
-          <button id="closeAuthScreenBtn" class="auth-screen-close" type="button" aria-label="Return to Workspace" hidden title="Return to Workspace">&times;</button>
           <div class="auth-card-titles">
-            <h3 id="authCardTitle">Welcome Back</h3>
-            <p id="authCardSubtitle">Sign in, create an account, or test with 1-click enterprise personas.</p>
+            <h3 id="authCardTitle">Sign In to Workspace</h3>
+            <p id="authCardSubtitle">Enter your enterprise credentials to access your isolated sessions.</p>
           </div>
         </div>
 
         <!-- Auth Navigation Tabs -->
-        <div class="auth-tab-bar">
-          <button class="auth-tab-btn active" data-tab="login" type="button">Sign In</button>
-          <button class="auth-tab-btn" data-tab="register" type="button">Create Account</button>
-          <button class="auth-tab-btn" data-tab="demo" type="button">1-Click Personas</button>
+        <div class="auth-tab-bar" role="tablist">
+          <button class="auth-tab-btn active" data-tab="login" type="button" role="tab" aria-selected="true">Sign In</button>
+          <button class="auth-tab-btn" data-tab="register" type="button" role="tab" aria-selected="false">Create Account</button>
+          <button class="auth-tab-btn" data-tab="demo" type="button" role="tab" aria-selected="false">1-Click Personas</button>
         </div>
 
         <!-- Error & Alert Notice Banner -->
-        <div id="authNotice" class="auth-notice" hidden></div>
+        <div id="authNotice" class="auth-notice" role="alert" aria-live="polite" hidden></div>
 
         <!-- Tab 1: Sign In Form -->
         <form id="loginForm" class="auth-body-tab">
@@ -93,8 +93,27 @@
           </div>
           <div class="auth-field">
             <label for="loginPassword">Password</label>
-            <input type="password" id="loginPassword" placeholder="Password" required autocomplete="current-password">
+            <div class="auth-input-wrap">
+              <input type="password" id="loginPassword" placeholder="Enter password (e.g. LunaDemo2026!)" required autocomplete="current-password">
+              <button type="button" class="toggle-password-btn" data-target="loginPassword" aria-label="Toggle password visibility" title="Show/Hide password">
+                <svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+            <small class="field-hint">Demo accounts password: <code>LunaDemo2026!</code></small>
           </div>
+
+          <div class="auth-quick-fill">
+            <span class="quick-fill-label">1-Click Fill Demo Credentials:</span>
+            <div class="quick-fill-chips">
+              <button type="button" class="quick-fill-chip" data-user="sarah" title="Fill Sarah Jenkins (Sales AE)">Sarah (Sales)</button>
+              <button type="button" class="quick-fill-chip" data-user="alex" title="Fill Alex Chen (Support Ops)">Alex (Ops)</button>
+              <button type="button" class="quick-fill-chip" data-user="admin" title="Fill Elena Rostova (Admin/VP)">Elena (Admin)</button>
+            </div>
+          </div>
+
           <button type="submit" id="loginSubmitBtn" class="auth-main-btn">
             <span class="btn-text">Sign In to Workspace</span>
             <span class="btn-spinner" hidden></span>
@@ -102,7 +121,7 @@
 
           <div class="auth-sub-links">
             <span>Don't have an account? <a href="#" id="linkToRegister">Create one now</a></span>
-            <span>Or test immediately via <a href="#" id="linkToDemo">1-Click Personas</a></span>
+            <span>Or explore immediately via <a href="#" id="linkToDemo">1-Click Personas</a></span>
           </div>
         </form>
 
@@ -126,7 +145,15 @@
             </div>
             <div class="auth-field">
               <label for="regPassword">Password *</label>
-              <input type="password" id="regPassword" placeholder="Min 6 characters" minlength="6" required autocomplete="new-password">
+              <div class="auth-input-wrap">
+                <input type="password" id="regPassword" placeholder="Min 6 characters" minlength="6" required autocomplete="new-password">
+                <button type="button" class="toggle-password-btn" data-target="regPassword" aria-label="Toggle password visibility" title="Show/Hide password">
+                  <svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -163,19 +190,17 @@
           <div id="demoAccountsGrid" class="demo-grid-wrap">
             <!-- Dynamically populated via JS -->
           </div>
-        </div>
-
-        <!-- Optional Guest Access Link -->
-        <div class="auth-guest-option">
-          <button id="guestContinueBtn" type="button" class="guest-link-btn">Continue as Guest (Anonymous Session)</button>
+          <div class="auth-sub-links" style="margin-top: 14px;">
+            <span>Prefer your own credentials? <a href="#" id="linkDemoToLogin">Sign In</a> or <a href="#" id="linkDemoToRegister">Create Account</a></span>
+          </div>
         </div>
 
       </div>
     </div>
   </div>
 
-  <!-- Chat Workspace Application Shell -->
-  <main class="app-shell" id="appShell">
+  <!-- Chat Workspace Application Shell (Visible ONLY after successful authentication) -->
+  <main class="app-shell" id="appShell" hidden>
     <header class="topbar">
       <a class="brand" href="/">
         <span class="brand-mark">L</span>
@@ -183,7 +208,10 @@
       </a>
       <div class="topbar-actions">
         <span id="connectionStatus" class="status-pill"><i></i> Connecting</span>
-        <button class="icon-button" id="refreshButton" title="Refresh tools and capabilities">Sync</button>
+        <button class="icon-button" id="refreshButton" title="Refresh workspace capabilities">Sync</button>
+        <button class="icon-button theme-toggle-btn" id="themeToggleButton" title="Toggle Dark/Light Mode" aria-label="Toggle theme">
+          <span id="themeToggleIcon">&#9790;</span> <span id="themeToggleText">Dark</span>
+        </button>
         <div id="userMenuContainer" class="user-menu-wrap">
           <!-- Populated dynamically via JS -->
           <button id="authTriggerBtn" class="auth-cta-btn" type="button">Sign In / Switch Persona</button>
@@ -197,7 +225,7 @@
           <div><span class="eyebrow">Autonomous</span><h1>Luna</h1></div>
           <span id="agentCount" class="count-badge">Ready</span>
         </div>
-        <p class="rail-copy">Luna dynamically orchestrates CRM, Analytics, Operations, and Knowledge Base tools in a single unified conversation.</p>
+        <p class="rail-copy">Luna dynamically orchestrates CRM, Analytics, Operations, and Knowledge Base capabilities in a single unified conversation.</p>
         
         <label class="sr-only" for="agentSelect">Active Agent</label>
         <select id="agentSelect" class="agent-select"></select>
@@ -213,11 +241,6 @@
           <div id="sessionsList" class="sessions-list">
             <!-- Populated dynamically via JS -->
           </div>
-        </div>
-
-        <div class="rail-footer">
-          <div class="mini-stat"><span id="mcpCount">3</span><small>MCP servers</small></div>
-          <div class="mini-stat"><span id="toolCount">0</span><small>Available tools</small></div>
         </div>
       </aside>
 
@@ -264,6 +287,6 @@
     </section>
   </main>
 
-  <script src="/static/chat-rich.js?v=14"></script>
+  <script src="/static/chat-rich.js?v=25"></script>
 </body>
 </html>

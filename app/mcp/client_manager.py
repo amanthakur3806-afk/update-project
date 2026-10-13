@@ -36,19 +36,22 @@ class MCPClientManager:
             "crm_mcp": {
                 "server_id": "crm_mcp",
                 "server_name": "CRM MCP Server",
-                "transport": "inprocess",
+                "transport": "stdio / sse / inprocess",
+                "server_url": "/mcp/crm/sse",
                 "status": "connected",
             },
             "analytics_mcp": {
                 "server_id": "analytics_mcp",
                 "server_name": "Analytics MCP Server",
-                "transport": "inprocess",
+                "transport": "stdio / sse / inprocess",
+                "server_url": "/mcp/analytics/sse",
                 "status": "connected",
             },
             "operations_mcp": {
                 "server_id": "operations_mcp",
                 "server_name": "Customer Operations MCP Server",
-                "transport": "inprocess",
+                "transport": "stdio / sse / inprocess",
+                "server_url": "/mcp/operations/sse",
                 "status": "connected",
                 "enabled": True,
             },
@@ -232,8 +235,16 @@ class MCPClientManager:
                     server.call_tool(tool_name, arguments),
                     timeout=timeout_seconds
                 )
-                duration_ms = round((time.time() - start_time) * 1000, 2)
-                
+                # Unpack MCP CallToolResult if returned
+                if hasattr(result, "content") and result.content:
+                    import json
+                    try:
+                        raw_text = result.content[0].text
+                        parsed = json.loads(raw_text)
+                        result = parsed
+                    except Exception:
+                        pass
+
                 # Determine tool business success vs business failure
                 tool_success = True
                 if isinstance(result, dict):
@@ -241,7 +252,8 @@ class MCPClientManager:
                         tool_success = False
                         if result.get("error"):
                             last_error = result.get("error")
-                
+
+                duration_ms = round((time.time() - start_time) * 1000, 2)
                 return {
                     "success": tool_success,  # Overall business success
                     "tool_success": tool_success,

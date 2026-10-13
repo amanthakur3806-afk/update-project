@@ -5,11 +5,88 @@
   var conversation = "chat_" + Date.now();
   var busy = false, executionStartedAt = 0;
   var currentUser = null;
-  var authToken = localStorage.getItem("luna_auth_token") || null;
+
+  function getStoredToken() {
+    try {
+      return localStorage.getItem("luna_auth_token") || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setStoredToken(token) {
+    try {
+      if (token) {
+        localStorage.setItem("luna_auth_token", token);
+      } else {
+        localStorage.removeItem("luna_auth_token");
+      }
+    } catch (e) {
+      console.warn("Storage unavailable:", e);
+    }
+  }
+
+  var authToken = getStoredToken();
 
   var $ = function (name) {
     return document.getElementById(name);
   };
+
+  function getStoredTheme() {
+    try {
+      return localStorage.getItem("luna_theme") || "light";
+    } catch (e) {
+      return "light";
+    }
+  }
+
+  function setStoredTheme(theme) {
+    try {
+      localStorage.setItem("luna_theme", theme);
+    } catch (e) {
+      console.warn("Storage unavailable:", e);
+    }
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    if (document.body) {
+      if (theme === "dark") {
+        document.body.classList.add("dark-mode");
+      } else {
+        document.body.classList.remove("dark-mode");
+      }
+    }
+
+    var icon = $("themeToggleIcon");
+    var txt = $("themeToggleText");
+    if (icon && txt) {
+      if (theme === "dark") {
+        icon.innerHTML = "&#9788;"; // Sun icon
+        txt.textContent = "Light";
+      } else {
+        icon.innerHTML = "&#9790;"; // Moon icon
+        txt.textContent = "Dark";
+      }
+    }
+  }
+
+  function extractErrorMessage(data, fallback) {
+    if (!data) return fallback || "An unexpected error occurred.";
+    if (typeof data.detail === "string") return data.detail;
+    if (Array.isArray(data.detail)) {
+      return data.detail.map(function (item) {
+        if (item && item.msg) {
+          var field = item.loc && item.loc.length ? item.loc[item.loc.length - 1] : "";
+          return field ? field + ": " + item.msg : item.msg;
+        }
+        return typeof item === "string" ? item : JSON.stringify(item);
+      }).join("; ");
+    }
+    if (data.message && typeof data.message === "string") return data.message;
+    return fallback || "An unexpected error occurred.";
+  }
+
 
   function authHeaders(extraHeaders) {
     var headers = Object.assign({}, extraHeaders || {});
@@ -225,38 +302,38 @@
 
   var SUGGESTIONS_MAP = {
     "luna": [
-      "Give me a full dossier for ABC including ARR, SLA, and open tasks.",
-      "Analyze churn risk for XYZ and verify war-room SLA escalation policy.",
-      "Show operations health and open tasks for NOVA.",
-      "List all customers and their current statuses.",
-      "What are the multi-year volume discount guidelines for a 3-year contract?"
+      "Compare the ingestion architectures, cloud providers, and scale of Spotify and Datadog.",
+      "What is Stripe's ARR, contract renewal date, and SLA uptime credit penalty if availability drops to 99.85%?",
+      "List all follow-up tasks for Spotify and Stripe with their status and due dates.",
+      "What was the root cause and remediation for the Spotify Sev-1 consumer rebalance incident?",
+      "What are the disaster recovery RPO and RTO objectives for Shopify and Stripe?"
     ],
     "customer_operations_agent": [
-      "List all customers.",
-      "Get operations details and tasks for NOVA.",
-      "Add note 'Completed annual HIPAA audit review' to NOVA.",
-      "Create follow-up task 'Deploy eBPF latency patch' for customer XYZ.",
-      "Change QUANTUM status to active.",
-      "Show audit history for ABC."
+      "List all customers and their operational statuses.",
+      "List all follow-up tasks for Spotify and Stripe.",
+      "Add note 'Reviewed PCI-DSS Vault failover and LATAM settlement latency' to STRIPE.",
+      "Create follow-up task 'Rehearse Vitess MySQL shard failover before BFCM' for SHOPIFY.",
+      "Change SHOPIFY status to active.",
+      "Show audit history for STRIPE."
     ],
     "customer_research_agent": [
-      "Generate comprehensive dossier for customer ABC including architecture and SLA.",
-      "Compare customer ABC and XYZ in terms of architecture, ARR, and SLA.",
-      "What is the clinical data compliance setup and TAM contact for NOVA?",
-      "Summarize Acme Industrial Automation (ACME) IoT plant telemetry infrastructure.",
-      "What are the upcoming renewal risks and Black Friday requirements for QUANTUM?"
+      "Generate comprehensive dossier for Stripe including payment volume, multi-region architecture, and SLA.",
+      "Compare Spotify (8.2B daily streams) and Datadog (25T monthly telemetry events) architectures.",
+      "What is Shopify's isolated Pod architecture and Vitess MySQL sharding setup for BFCM bursts?",
+      "Summarize Datadog's eBPF probe telemetry across 18,450 Kubernetes clusters.",
+      "What was the root cause of Spotify's Sev-1 consumer rebalance incident during the 3.5x Wrapped surge?"
     ],
     "financial_analyst_agent": [
-      "Analyze ARR, MRR, and churn risk across XYZ and QUANTUM.",
-      "Audit health metrics, NPS scores, and monthly API telemetry for all accounts.",
-      "What are the multi-year volume discount guidelines for a 3-year contract?",
-      "Compare financial metrics between NOVA ($620k ARR) and ABC ($480k ARR)."
+      "Analyze ARR, MRR, churn risk, and NPS scores across Spotify, Stripe, Datadog, and Shopify.",
+      "Compare financial metrics and monthly API volumes between Stripe ($5.2M ARR) and Shopify ($4.1M ARR).",
+      "What are the multi-year volume discount guidelines for an upcoming 3-year contract renewal?",
+      "Audit SLA uptime compliance, error budget burn rates, and financial penalty exposure across all accounts."
     ],
     "support_compliance_agent": [
-      "Verify SLA response compliance and war-room protocol for Tier 1 customer XYZ.",
-      "What are the Sev-1 escalation guidelines and response windows across Platinum vs Gold tiers?",
-      "Review HIPAA compliance, BAA status, and data retention policies for NOVA.",
-      "What is our disaster recovery RPO/RTO target for Tier 1 Platinum accounts?"
+      "What are the Five-Nines (99.999%) SLA penalty credit tiers for Stripe if uptime drops below 99.99%?",
+      "Verify SLA response windows and war-room protocol for Sev-1 outages across Platinum Ultra vs Gold tiers.",
+      "What are the disaster recovery RPO and RTO targets for mission-critical accounts like Stripe and Shopify?",
+      "Review PCI-DSS Level 1 compliance requirements and HSM tokenization policies for Stripe."
     ]
   };
 
@@ -279,13 +356,12 @@
       '<p>' + esc(a.description || "Ready for conversation.") + '</p>' +
       '<div class="agent-badges">' +
       '<span class="agent-tag active cat-' + esc(categoryClass) + '">' + esc(a.category || "General") + '</span>' +
-      '<span class="agent-tag">' + toolCount + ' tools</span>' +
       '<span class="agent-tag model-tag">' + esc(a.model || "gpt-4o-mini") + '</span>' +
       '</div>';
 
     var suggestions = SUGGESTIONS_MAP[a.agent_id] || SUGGESTIONS_MAP["luna"] || [
       "Hello! What can you help me with?",
-      "List available tools and capabilities."
+      "Summarize account portfolio and health."
     ];
 
     html += '<div class="quick-prompts-label">Quick Prompts:</div><div class="quick-prompts">';
@@ -398,33 +474,58 @@
     }
   }
 
-  function openAuthScreen(defaultTab) {
+  function openAuthScreen(defaultTab, skipHistory) {
     var screen = $("authScreen");
-    if (!screen) return;
-    screen.hidden = false;
-
-    var closeBtn = $("closeAuthScreenBtn");
-    if (closeBtn) {
-      closeBtn.hidden = !currentUser; // only show return button if already logged in
+    var appShell = $("appShell");
+    if (screen) {
+      screen.hidden = false;
+      screen.removeAttribute("hidden");
+      screen.style.display = "flex";
+    }
+    if (appShell) {
+      appShell.hidden = true;
+      appShell.setAttribute("hidden", "");
+      appShell.style.display = "none";
     }
 
-    showNotice("", false);
-    switchAuthTab(defaultTab || "login");
+    var targetTab = defaultTab || "login";
+    switchAuthTab(targetTab, skipHistory);
     loadDemoAccounts();
   }
 
   function closeAuthScreen() {
     var screen = $("authScreen");
-    if (screen) screen.hidden = true;
+    var appShell = $("appShell");
+    if (screen) {
+      screen.hidden = true;
+      screen.setAttribute("hidden", "");
+      screen.style.display = "none";
+    }
+    if (appShell) {
+      appShell.hidden = false;
+      appShell.removeAttribute("hidden");
+      appShell.style.display = "flex";
+    }
+
+    var currentPath = (window.location.pathname || "").toLowerCase().replace(/\/+$/, "");
+    if (["/login", "/register", "/signin", "/signup", "/demo", "/auth"].indexOf(currentPath) !== -1) {
+      if (window.history && window.history.pushState) {
+        window.history.pushState(null, "", "/");
+      }
+    }
+    enable(true);
   }
 
-  function switchAuthTab(tabName) {
+  function switchAuthTab(tabName, skipHistory) {
     var tabs = document.querySelectorAll(".auth-tab-btn");
     tabs.forEach(function (t) {
-      if (t.getAttribute("data-tab") === tabName) {
+      var isTarget = t.getAttribute("data-tab") === tabName;
+      if (isTarget) {
         t.classList.add("active");
+        t.setAttribute("aria-selected", "true");
       } else {
         t.classList.remove("active");
+        t.setAttribute("aria-selected", "false");
       }
     });
 
@@ -435,24 +536,40 @@
     var title = $("authCardTitle");
     var subtitle = $("authCardSubtitle");
 
+    var targetPath = "/login";
     if (tabName === "login") {
+      targetPath = "/login";
       if (loginForm) loginForm.hidden = false;
       if (regForm) regForm.hidden = true;
       if (demoContent) demoContent.hidden = true;
       if (title) title.textContent = "Sign In to Workspace";
       if (subtitle) subtitle.textContent = "Enter your enterprise credentials to access your isolated sessions.";
+      var idEl = $("loginId");
+      if (idEl) setTimeout(function () { idEl.focus(); }, 60);
     } else if (tabName === "register") {
+      targetPath = "/register";
       if (loginForm) loginForm.hidden = true;
       if (regForm) regForm.hidden = false;
       if (demoContent) demoContent.hidden = true;
       if (title) title.textContent = "Create New Account";
       if (subtitle) subtitle.textContent = "Set up your profile and responsibilities for personalized agent context.";
+      var fnEl = $("regFullName");
+      if (fnEl) setTimeout(function () { fnEl.focus(); }, 60);
     } else if (tabName === "demo") {
+      targetPath = "/demo";
       if (loginForm) loginForm.hidden = true;
       if (regForm) regForm.hidden = true;
       if (demoContent) demoContent.hidden = false;
       if (title) title.textContent = "1-Click Demo Personas";
       if (subtitle) subtitle.textContent = "Instantly explore Luna with pre-seeded enterprise roles and context.";
+      loadDemoAccounts();
+    }
+
+    if (!skipHistory && window.history && window.history.replaceState) {
+      var curr = (window.location.pathname || "").toLowerCase().replace(/\/+$/, "");
+      if (curr !== targetPath) {
+        window.history.replaceState({ tab: tabName }, "", targetPath);
+      }
     }
 
     showNotice("", false);
@@ -472,12 +589,29 @@
     }
   }
 
+  function getRequestedAuthTab() {
+    var path = (window.location.pathname || "").toLowerCase().replace(/\/+$/, "");
+    var hash = (window.location.hash || "").toLowerCase();
+    var search = (window.location.search || "").toLowerCase();
+    if (path === "/register" || path === "/signup" || hash === "#register" || search.includes("auth=register")) {
+      return "register";
+    }
+    if (path === "/demo" || hash === "#demo" || search.includes("auth=demo")) {
+      return "demo";
+    }
+    if (path === "/login" || path === "/signin" || path === "/auth" || hash === "#login" || search.includes("auth=login")) {
+      return "login";
+    }
+    return null;
+  }
+
   function fetchCurrentUser() {
+    var requestedTab = getRequestedAuthTab();
     if (!authToken) {
       currentUser = null;
       renderUserMenu();
       loadSessions();
-      openAuthScreen("login");
+      openAuthScreen(requestedTab || "login");
       return Promise.resolve(null);
     }
 
@@ -491,24 +625,38 @@
       .then(function (user) {
         currentUser = user;
         renderUserMenu();
-        closeAuthScreen();
+        if (requestedTab) {
+          openAuthScreen(requestedTab);
+        } else {
+          closeAuthScreen();
+        }
         loadSessions();
         return user;
       })
       .catch(function () {
         authToken = null;
         currentUser = null;
-        localStorage.removeItem("luna_auth_token");
+        setStoredToken(null);
         renderUserMenu();
         loadSessions();
-        openAuthScreen("login");
+        openAuthScreen(requestedTab || "login");
+        showNotice("Your session has expired. Please sign in again.", false);
         return null;
       });
   }
 
-  function login(usernameOrEmail, password) {
+  function login(usernameOrEmail, password, cardElement) {
     var submitBtn = $("loginSubmitBtn");
-    setButtonLoading(submitBtn, true, "Sign In to Workspace");
+    var activeCardAction = cardElement ? cardElement.querySelector(".demo-persona-action") : null;
+    var originalCardAction = activeCardAction ? activeCardAction.textContent : null;
+
+    if (activeCardAction) {
+      activeCardAction.innerHTML = '<span class="btn-spinner" style="display:inline-block;margin-right:6px;width:12px;height:12px;border:2px solid #4f46e5;border-top-color:transparent;border-radius:50%;animation:btn-spin 0.65s linear infinite;"></span> Signing in...';
+      var allCards = document.querySelectorAll(".demo-persona-card");
+      allCards.forEach(function (c) { c.style.pointerEvents = "none"; });
+    } else {
+      setButtonLoading(submitBtn, true, "Sign In to Workspace");
+    }
     showNotice("", false);
 
     return fetch("/auth/login", {
@@ -522,23 +670,44 @@
       .then(function (r) {
         return r.json().then(function (data) {
           if (!r.ok) {
-            throw Error(data.detail || "Invalid username or password.");
+            throw Error(extractErrorMessage(data, "Invalid username or password."));
           }
           return data;
         });
       })
       .then(function (res) {
-        setButtonLoading(submitBtn, false, "Sign In to Workspace");
+        if (activeCardAction) {
+          var allCards = document.querySelectorAll(".demo-persona-card");
+          allCards.forEach(function (c) { c.style.pointerEvents = "auto"; });
+        } else {
+          setButtonLoading(submitBtn, false, "Sign In to Workspace");
+        }
+
         authToken = res.access_token;
-        localStorage.setItem("luna_auth_token", authToken);
+        setStoredToken(authToken);
         currentUser = res.user;
+
+        var pwdInput = $("loginPassword");
+        if (pwdInput) pwdInput.value = "";
+
         renderUserMenu();
         closeAuthScreen();
         reset();
         loadSessions();
       })
       .catch(function (err) {
-        setButtonLoading(submitBtn, false, "Sign In to Workspace");
+        if (activeCardAction) {
+          activeCardAction.textContent = originalCardAction || "Sign in as this persona \u2192";
+          var allCards = document.querySelectorAll(".demo-persona-card");
+          allCards.forEach(function (c) { c.style.pointerEvents = "auto"; });
+        } else {
+          setButtonLoading(submitBtn, false, "Sign In to Workspace");
+          var pwdInput = $("loginPassword");
+          if (pwdInput) {
+            pwdInput.select();
+            pwdInput.focus();
+          }
+        }
         showNotice(err.message, true);
       });
   }
@@ -556,7 +725,7 @@
       .then(function (r) {
         return r.json().then(function (data) {
           if (!r.ok) {
-            throw Error(data.detail || "Registration failed. Please verify fields.");
+            throw Error(extractErrorMessage(data, "Registration failed. Please verify fields."));
           }
           return data;
         });
@@ -564,8 +733,12 @@
       .then(function (res) {
         setButtonLoading(submitBtn, false, "Create Account & Start Chatting");
         authToken = res.access_token;
-        localStorage.setItem("luna_auth_token", authToken);
+        setStoredToken(authToken);
         currentUser = res.user;
+
+        var rf = $("registerForm");
+        if (rf) rf.reset();
+
         renderUserMenu();
         closeAuthScreen();
         reset();
@@ -580,59 +753,72 @@
   function logout() {
     authToken = null;
     currentUser = null;
-    localStorage.removeItem("luna_auth_token");
+    setStoredToken(null);
     renderUserMenu();
     reset();
     loadSessions();
     openAuthScreen("login");
+    showNotice("You have signed out successfully.", false);
   }
+
+  var cachedDemoAccounts = null;
 
   function loadDemoAccounts() {
     var grid = $("demoAccountsGrid");
     if (!grid) return;
+
+    function renderCards(accounts) {
+      grid.innerHTML = "";
+      accounts.forEach(function (acc) {
+        var card = document.createElement("div");
+        card.className = "demo-persona-card";
+        if (currentUser && currentUser.username === acc.username) {
+          card.classList.add("active");
+        }
+
+        var initials = (acc.full_name || acc.username)
+          .split(" ")
+          .map(function (n) { return n[0]; })
+          .join("")
+          .substring(0, 2)
+          .toUpperCase();
+
+        card.innerHTML =
+          '<div class="demo-persona-head">' +
+            '<div class="demo-persona-user">' +
+              '<div class="demo-persona-avatar">' + esc(initials) + '</div>' +
+              '<div>' +
+                '<div class="demo-persona-name">' + esc(acc.full_name) + '</div>' +
+                '<div class="demo-persona-email-hint">@' + esc(acc.username) + ' &middot; ' + esc(acc.email) + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<span class="demo-persona-role-badge">' + esc(acc.role) + '</span>' +
+          '</div>' +
+          '<div class="demo-persona-desc">' + esc(acc.description || acc.responsibilities || '') + '</div>' +
+          '<div class="demo-persona-action">' +
+            (currentUser && currentUser.username === acc.username ? '\u2713 Active Persona' : 'Sign in as this persona \u2192') +
+          '</div>';
+
+        card.addEventListener("click", function () {
+          login(acc.username, "LunaDemo2026!", card);
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    if (cachedDemoAccounts) {
+      renderCards(cachedDemoAccounts);
+      return;
+    }
 
     grid.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">Loading enterprise personas...</div>';
 
     fetch("/auth/demo-accounts")
       .then(function (r) { return r.json(); })
       .then(function (accounts) {
-        grid.innerHTML = "";
-        accounts.forEach(function (acc) {
-          var card = document.createElement("div");
-          card.className = "demo-persona-card";
-          if (currentUser && currentUser.username === acc.username) {
-            card.classList.add("active");
-          }
-
-          var initials = (acc.full_name || acc.username)
-            .split(" ")
-            .map(function (n) { return n[0]; })
-            .join("")
-            .substring(0, 2)
-            .toUpperCase();
-
-          card.innerHTML =
-            '<div class="demo-persona-head">' +
-              '<div class="demo-persona-user">' +
-                '<div class="demo-persona-avatar">' + esc(initials) + '</div>' +
-                '<div>' +
-                  '<div class="demo-persona-name">' + esc(acc.full_name) + '</div>' +
-                  '<div class="demo-persona-email-hint">@' + esc(acc.username) + ' &middot; ' + esc(acc.email) + '</div>' +
-                '</div>' +
-              '</div>' +
-              '<span class="demo-persona-role-badge">' + esc(acc.role) + '</span>' +
-            '</div>' +
-            '<div class="demo-persona-desc">' + esc(acc.description || acc.responsibilities || '') + '</div>' +
-            '<div class="demo-persona-action">' +
-              (currentUser && currentUser.username === acc.username ? '\u2713 Active Persona' : 'Sign in as this persona \u2192') +
-            '</div>';
-
-          card.addEventListener("click", function () {
-            login(acc.username, "LunaDemo2026!");
-          });
-
-          grid.appendChild(card);
-        });
+        cachedDemoAccounts = accounts;
+        renderCards(accounts);
       })
       .catch(function (err) {
         grid.innerHTML = '<div style="font-size:12px;color:#ef4444;">Failed to load demo accounts.</div>';
@@ -845,8 +1031,10 @@
         );
       })
       .then(function (data) {
-        $("mcpCount").textContent = data[0].length;
-        $("toolCount").textContent = data[1].length;
+        var mcpEl = $("mcpCount");
+        if (mcpEl) mcpEl.textContent = data[0].length;
+        var toolEl = $("toolCount");
+        if (toolEl) toolEl.textContent = data[1].length;
       })
       .catch(function (e) {
         console.error(e);
@@ -954,6 +1142,32 @@
     var input = $("messageInput");
     var query = input.value.trim();
     if (!query) return;
+
+    var cmd = query.toLowerCase();
+    if (cmd === "/register" || cmd === "/signup") {
+      input.value = "";
+      input.style.height = "auto";
+      openAuthScreen("register");
+      return;
+    }
+    if (cmd === "/login" || cmd === "/signin" || cmd === "/auth") {
+      input.value = "";
+      input.style.height = "auto";
+      openAuthScreen("login");
+      return;
+    }
+    if (cmd === "/demo" || cmd === "/personas" || cmd === "/switch") {
+      input.value = "";
+      input.style.height = "auto";
+      openAuthScreen("demo");
+      return;
+    }
+    if (cmd === "/logout" || cmd === "/signout") {
+      input.value = "";
+      input.style.height = "auto";
+      logout();
+      return;
+    }
 
     addMessage("user", query);
     input.value = "";
@@ -1221,11 +1435,51 @@
       });
     }
 
-    // Modal Close Button
-    var closeBtn = $("closeAuthScreenBtn");
-    if (closeBtn) {
-      closeBtn.addEventListener("click", closeAuthScreen);
-    }
+    // Handle browser Back / Forward history
+    window.addEventListener("popstate", function (e) {
+      var tab = getRequestedAuthTab();
+      if (!authToken) {
+        openAuthScreen(tab || "login", true);
+      } else if (tab) {
+        openAuthScreen(tab, true);
+      } else {
+        closeAuthScreen();
+      }
+    });
+
+    // Password Visibility Toggles
+    var toggleButtons = document.querySelectorAll(".toggle-password-btn");
+    toggleButtons.forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var targetId = this.getAttribute("data-target");
+        var input = $(targetId);
+        if (!input) return;
+        var isPwd = input.type === "password";
+        input.type = isPwd ? "text" : "password";
+        this.setAttribute("aria-label", isPwd ? "Hide password" : "Show password");
+        this.setAttribute("title", isPwd ? "Hide password" : "Show password");
+        this.innerHTML = isPwd
+          ? '<svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
+          : '<svg class="eye-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+      });
+    });
+
+    // Quick Fill Demo Credentials
+    var quickChips = document.querySelectorAll(".quick-fill-chip");
+    quickChips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var user = this.getAttribute("data-user");
+        var idInput = $("loginId");
+        var pwdInput = $("loginPassword");
+        if (idInput && pwdInput) {
+          idInput.value = user;
+          pwdInput.value = "LunaDemo2026!";
+          showNotice("Filled demo credentials for @" + user + ". Click 'Sign In to Workspace' to continue.", false);
+          pwdInput.focus();
+        }
+      });
+    });
 
     // Tab buttons
     var tabs = document.querySelectorAll(".auth-tab-btn");
@@ -1258,11 +1512,18 @@
       });
     }
 
-    // Guest Continue Button
-    var guestBtn = $("guestContinueBtn");
-    if (guestBtn) {
-      guestBtn.addEventListener("click", function () {
-        closeAuthScreen();
+    var linkDemoLog = $("linkDemoToLogin");
+    if (linkDemoLog) {
+      linkDemoLog.addEventListener("click", function (e) {
+        e.preventDefault();
+        switchAuthTab("login");
+      });
+    }
+    var linkDemoReg = $("linkDemoToRegister");
+    if (linkDemoReg) {
+      linkDemoReg.addEventListener("click", function (e) {
+        e.preventDefault();
+        switchAuthTab("register");
       });
     }
 
@@ -1315,6 +1576,19 @@
         };
 
         register(formData);
+      });
+    }
+
+    // Initialize theme
+    applyTheme(getStoredTheme());
+
+    // Theme Toggle Handler
+    var themeBtn = $("themeToggleButton");
+    if (themeBtn) {
+      themeBtn.addEventListener("click", function () {
+        var nextTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        applyTheme(nextTheme);
+        setStoredTheme(nextTheme);
       });
     }
 

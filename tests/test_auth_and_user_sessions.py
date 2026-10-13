@@ -43,7 +43,8 @@ def test_seed_user_login():
     assert data["token_type"] == "bearer"
     assert data["user"]["username"] == "sarah"
     assert data["user"]["role"] == "Senior Enterprise Account Executive"
-    assert "ABC" in data["user"]["responsibilities"]
+    assert "SPOTIFY" in data["user"]["responsibilities"]
+    assert "STRIPE" in data["user"]["responsibilities"]
 
 
 def test_auth_me_with_token():

@@ -23,7 +23,7 @@ from app.models.customer_operations import (
     FollowUpTask,
     OperationAuditLog,
 )
-from app.rag.ingest import ingest_knowledge_base
+from app.rag.ingest import ingest_knowledge_base, rebuild_all_knowledge_bases
 from app.rag.vector_store import vector_store
 
 CUSTOMER_RESEARCH_PLAYBOOK = """# Customer Research Playbook
@@ -113,7 +113,7 @@ def seed_default_users(db: Session):
             "full_name": "Sarah Jenkins",
             "role": "Senior Enterprise Account Executive",
             "department": "Commercial Sales",
-            "responsibilities": "Primary AE managing accounts ABC & XYZ. Handles enterprise renewals, multi-year volume pricing, and SLA governance.",
+            "responsibilities": "Primary AE managing accounts SPOTIFY and STRIPE. Handles enterprise renewals, multi-year volume pricing, and SLA governance.",
             "preferences": {"concise_mode": False, "preferred_currency": "USD", "timezone": "EST"}
         },
         {
@@ -123,7 +123,7 @@ def seed_default_users(db: Session):
             "full_name": "Alex Chen",
             "role": "Lead Support Operations Architect",
             "department": "Customer Operations",
-            "responsibilities": "Technical Operations Lead managing platform uptime, Sev-1 incident protocols, and operational tasks for NOVA & QUANTUM.",
+            "responsibilities": "Technical Operations Lead managing platform uptime, Sev-1 incident protocols, and operational tasks for DATADOG and SHOPIFY.",
             "preferences": {"concise_mode": False, "preferred_currency": "USD", "timezone": "PST"}
         },
         {
@@ -133,7 +133,7 @@ def seed_default_users(db: Session):
             "full_name": "Elena Rostova",
             "role": "Executive VP Operations & Strategy",
             "department": "Executive Leadership",
-            "responsibilities": "Executive portfolio oversight, company-wide ARR/MRR health metrics, churn risk auditing, and compliance policy verification.",
+            "responsibilities": "Executive portfolio oversight, company-wide ARR/MRR health metrics, churn risk auditing, and compliance policy verification across Spotify, Stripe, Datadog, and Shopify.",
             "preferences": {"concise_mode": True, "preferred_currency": "USD", "timezone": "UTC"}
         }
     ]
@@ -156,6 +156,10 @@ def seed_default_users(db: Session):
                 is_active=True
             )
             db.add(user)
+        else:
+            u_exist.responsibilities = u_data["responsibilities"]
+            u_exist.role = u_data["role"]
+            u_exist.department = u_data["department"]
     db.commit()
 
 
@@ -171,24 +175,38 @@ def seed_database():
             MCPServer(
                 server_id="crm_mcp",
                 server_name="CRM MCP Server",
-                server_url="app/mcp/servers/crm_server.py",
-                transport="inprocess",
-                configuration={"capabilities": ["get_customer", "search_customer", "update_notes"]}
+                server_url="/mcp/crm/sse",
+                transport="stdio / sse",
+                configuration={
+                    "command": "python app/mcp/servers/crm_server.py",
+                    "capabilities": ["tools", "resources", "prompts"],
+                    "tools": ["CRM.get_customer", "CRM.search_customer", "CRM.update_notes"],
+                    "resources": ["crm://customers", "crm://customers/{customer_id}"],
+                    "prompts": ["crm_account_briefing", "crm_stakeholder_dossier"],
+                }
             ),
             MCPServer(
                 server_id="analytics_mcp",
                 server_name="Analytics MCP Server",
-                server_url="app/mcp/servers/analytics_server.py",
-                transport="inprocess",
-                configuration={"capabilities": ["get_customer_metrics", "get_customer_history"]}
+                server_url="/mcp/analytics/sse",
+                transport="stdio / sse",
+                configuration={
+                    "command": "python app/mcp/servers/analytics_server.py",
+                    "capabilities": ["tools", "resources", "prompts"],
+                    "tools": ["Analytics.get_customer_metrics", "Analytics.get_customer_history"],
+                    "resources": ["analytics://metrics/{customer_id}", "analytics://history/{customer_id}"],
+                    "prompts": ["analytics_churn_audit", "analytics_financial_review"],
+                }
             ),
             MCPServer(
                 server_id="operations_mcp",
                 server_name="Customer Operations MCP Server",
-                server_url="app/mcp/servers/operations_server.py",
-                transport="inprocess",
+                server_url="/mcp/operations/sse",
+                transport="stdio / sse",
                 configuration={
-                    "capabilities": [
+                    "command": "python app/mcp/servers/operations_server.py",
+                    "capabilities": ["tools", "resources", "prompts"],
+                    "tools": [
                         "Operations.create_customer",
                         "Operations.list_customers",
                         "Operations.get_customer",
@@ -200,6 +218,8 @@ def seed_database():
                         "Operations.update_follow_up_task_status",
                         "Operations.get_audit_history",
                     ],
+                    "resources": ["operations://customers", "operations://tasks", "operations://audit"],
+                    "prompts": ["operations_onboard_customer", "operations_audit_investigation"],
                     "implementation_status": "ready",
                 },
                 enabled=True,
@@ -209,6 +229,10 @@ def seed_database():
             existing = db.query(MCPServer).filter(MCPServer.server_id == s.server_id).first()
             if not existing:
                 db.add(s)
+            else:
+                existing.server_url = s.server_url
+                existing.transport = s.transport
+                existing.configuration = s.configuration
         db.commit()
 
         # 1b. Seed Demo Users for Multi-User & Authentication Support
@@ -451,12 +475,12 @@ def seed_database():
 
         # 4. Seed Persistent Customer Operations Accounts & Tasks if missing
         initial_ops_accounts = [
+            ("SPOTIFY", "Spotify AB", "active", "Sarah Jenkins", datetime.date(2027, 4, 15)),
+            ("STRIPE", "Stripe Inc.", "active", "Sarah Jenkins", datetime.date(2026, 11, 30)),
+            ("DATADOG", "Datadog Inc.", "active", "Alex Chen", datetime.date(2027, 2, 28)),
+            ("SHOPIFY", "Shopify Inc.", "active", "Alex Chen", datetime.date(2026, 12, 31)),
             ("ABC", "ABC Global Logistics & Supply Inc.", "active", "Sarah Jenkins", datetime.date(2027, 1, 15)),
-            ("XYZ", "XYZ FinTech Global Holdings", "active", "Michael Chang", datetime.date(2026, 11, 30)),
-            ("ACME", "Acme Industrial Automation Corp", "active", "Jessica Vance", datetime.date(2027, 1, 20)),
             ("NOVA", "NovaHealth Technologies International", "active", "David K. Miller", datetime.date(2027, 8, 10)),
-            ("VERTEX", "Vertex Media & Streaming Networks", "active", "Amanda Ross", datetime.date(2026, 12, 15)),
-            ("QUANTUM", "Quantum Retail Networks Inc", "at-risk", "Brian Kelly", datetime.date(2026, 10, 31)),
         ]
         for cid, name, status, owner, renewal in initial_ops_accounts:
             acc = db.query(CustomerAccount).filter(CustomerAccount.customer_id == cid).first()
@@ -509,19 +533,11 @@ def seed_database():
                 kb.folder_path = str(kb_path)
         db.commit()
 
-        # Ingest documents if DB or vector store has missing files
+        # Ingest documents if DB or vector store has mismatched files
         current_disk_docs = sum(len(list(p.glob("*.md"))) for _, _, p in kb_dirs if p.exists())
         doc_count = db.query(Document).count()
-        if doc_count < current_disk_docs or vector_store.total_vectors == 0:
-            for kb_id, kb_name, kb_path in kb_dirs:
-                if kb_path.exists():
-                    ingest_knowledge_base(
-                        kb_id=kb_id,
-                        folder_path=str(kb_path),
-                        db=db,
-                        chunk_size=400,
-                        chunk_overlap=50
-                    )
+        if doc_count != current_disk_docs or vector_store.total_vectors == 0:
+            rebuild_all_knowledge_bases(db)
 
         # 6. Clean Startup Status Log (Section 29)
         llm_desc = "Local Deterministic Engine"

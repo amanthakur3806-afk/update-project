@@ -191,6 +191,51 @@ def update_conversation(
     }
 
 
+@router.post("/conversations/{conversation_id}/generate-title", summary="Generate conversation title using GROQ_API_KEY2")
+def generate_conversation_title(
+    conversation_id: str,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate or refresh a concise, intelligent title for a conversation
+    using the dedicated GROQ_API_KEY2 LLM endpoint.
+    """
+    conv = db.query(Conversation).filter(Conversation.conversation_id == conversation_id).first()
+    if not conv:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation '{conversation_id}' not found."
+        )
+    if conv.user_id and current_user and conv.user_id != current_user.user_id and current_user.role != "Admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot modify another user's conversation."
+        )
+
+    # Find the first user message or recent messages to summarize
+    first_msg = db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.role == "user"
+    ).order_by(Message.id.asc()).first()
+
+    seed_text = first_msg.content if first_msg else conv.title or "General Conversation"
+
+    from app.workflow.llm_provider import llm_provider
+    new_title = llm_provider.generate_conversation_name(seed_text)
+
+    conv.title = new_title
+    db.commit()
+    db.refresh(conv)
+
+    return {
+        "success": True,
+        "conversation_id": conv.conversation_id,
+        "title": conv.title,
+        "seed": seed_text[:60]
+    }
+
+
 @router.get("/conversations/{conversation_id}/messages", summary="Get dialogue turns for a conversation")
 def get_conversation_messages(
     conversation_id: str,

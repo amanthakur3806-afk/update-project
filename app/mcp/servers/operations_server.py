@@ -8,8 +8,17 @@ Every write is committed as one database transaction
 and recorded in the operation audit log.
 """
 
+import sys
+import os
+import json
 import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List
+
+# Ensure project root is in sys.path for direct script execution
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from app.database import SessionLocal
 from app.models.customer_operations import (
@@ -503,6 +512,21 @@ class CustomerOperationsMCPServer:
             new_value=company_name,
         )
 
+        # Also sync newly created customer into CRM data_service
+        data_service.save_customer({
+            "customer_id": customer_id,
+            "company_name": company_name,
+            "industry": arguments.get("industry", "Enterprise Account"),
+            "tier": arguments.get("tier", "Enterprise Tier 1"),
+            "sla": arguments.get("sla", "Standard Enterprise SLA"),
+            "contract_value": arguments.get("contract_value", "Pending Commercial Valuation"),
+            "renewal_date": account.renewal_date.isoformat() if account.renewal_date else None,
+            "account_owner": account.owner,
+            "primary_stakeholder": arguments.get("primary_stakeholder"),
+            "status": account.status,
+            "notes": [],
+        })
+
         return {
             "success": True,
             "customer": self._account_payload(
@@ -591,21 +615,12 @@ class CustomerOperationsMCPServer:
         arguments: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Update customer status.
+        Update customer status, owner, and/or renewal_date.
         """
 
         customer_id = self._customer_id(
             arguments
         )
-
-        status = str(
-            arguments.get("status", "")
-        ).strip()
-
-        if not status:
-            raise ValueError(
-                "Missing required argument: 'status'"
-            )
 
         account = self._ensure_account(
             db,
@@ -622,6 +637,13 @@ class CustomerOperationsMCPServer:
                 ),
             }
 
+        status = str(
+            arguments.get("status", "")
+        ).strip() or account.status or "Active"
+
+        owner = arguments.get("owner")
+        renewal_date = arguments.get("renewal_date")
+
         customer = data_service.get_customer(
             customer_id
         )
@@ -635,10 +657,34 @@ class CustomerOperationsMCPServer:
             else account.status
         )
 
+        account.status = status
+        if owner is not None and str(owner).strip():
+            account.owner = str(owner).strip()
+        if renewal_date is not None and str(renewal_date).strip():
+            try:
+                account.renewal_date = datetime.date.fromisoformat(str(renewal_date).strip()[:10])
+            except ValueError:
+                pass
+
         if customer:
             customer["status"] = status
-
-        account.status = status
+            if account.owner:
+                customer["account_owner"] = account.owner
+            if account.renewal_date:
+                customer["renewal_date"] = account.renewal_date.isoformat()
+        else:
+            data_service.save_customer({
+                "customer_id": account.customer_id,
+                "company_name": account.company_name,
+                "industry": "Enterprise Account",
+                "tier": "Enterprise Tier 1",
+                "sla": "Standard Enterprise SLA",
+                "contract_value": "Pending Commercial Valuation",
+                "renewal_date": account.renewal_date.isoformat() if account.renewal_date else None,
+                "account_owner": account.owner,
+                "status": account.status,
+                "notes": [],
+            })
 
         self._audit(
             db=db,
@@ -646,14 +692,17 @@ class CustomerOperationsMCPServer:
             customer_id=customer_id,
             action="update_status",
             old_value=old_status,
-            new_value=status,
+            new_value=f"status={status}, owner={account.owner}, renewal_date={account.renewal_date}",
         )
 
         return {
             "success": True,
             "customer_id": customer_id,
+            "company_name": account.company_name,
             "old_status": old_status,
             "status": status,
+            "owner": account.owner,
+            "renewal_date": account.renewal_date.isoformat() if account.renewal_date else None,
             "reason": arguments.get("reason"),
         }
 
@@ -1190,3 +1239,208 @@ class CustomerOperationsMCPServer:
 # ================================================================
 
 operations_server_instance = CustomerOperationsMCPServer()
+
+# Official Model Context Protocol (MCP) Server instance
+try:
+    from mcp.server.mcpserver import MCPServer
+    mcp_server = MCPServer("Customer Operations MCP Server")
+
+    @mcp_server.tool(
+        name="Operations.create_customer",
+        description="Register a new customer account in the persistent database with company name, status, owner, renewal date."
+    )
+    async def operations_create_customer(
+        customer_id: str,
+        company_name: str,
+        status: str = "Active",
+        owner: str = None,
+        renewal_date: str = None
+    ) -> dict:
+        """Create new customer account."""
+        return await operations_server_instance.call_tool("Operations.create_customer", {
+            "customer_id": customer_id,
+            "company_name": company_name,
+            "status": status,
+            "owner": owner,
+            "renewal_date": renewal_date,
+        })
+
+    @mcp_server.tool(
+        name="Operations.list_customers",
+        description="Query the operations database table for all customer records, returning company names, states, owners, open tasks."
+    )
+    async def operations_list_customers() -> dict:
+        """List all customer accounts."""
+        return await operations_server_instance.call_tool("Operations.list_customers", {})
+
+    @mcp_server.tool(
+        name="Operations.get_customer",
+        description="Read single customer operational state: lifecycle status, account owner, renewal date, open tasks count."
+    )
+    async def operations_get_customer(customer_id: str) -> dict:
+        """Get customer by ID."""
+        return await operations_server_instance.call_tool("Operations.get_customer", {"customer_id": customer_id})
+
+    @mcp_server.tool(
+        name="Operations.update_customer_status",
+        description="Transition customer operational status ('Active', 'At-Risk', 'Suspended', 'Churned', 'Inactive') with audit log."
+    )
+    async def operations_update_customer_status(customer_id: str, status: str, reason: str) -> dict:
+        """Update customer status."""
+        return await operations_server_instance.call_tool("Operations.update_customer_status", {
+            "customer_id": customer_id,
+            "status": status,
+            "reason": reason,
+        })
+
+    @mcp_server.tool(
+        name="Operations.add_customer_note",
+        description="Append an operational note to customer account with optional author attribution and audit record."
+    )
+    async def operations_add_customer_note(customer_id: str, note: str, author: str = None) -> dict:
+        """Add note to customer."""
+        return await operations_server_instance.call_tool("Operations.add_customer_note", {
+            "customer_id": customer_id,
+            "note": note,
+            "author": author,
+        })
+
+    @mcp_server.tool(
+        name="Operations.get_customer_notes",
+        description="Retrieve timestamped operational notes attached to a customer record in reverse chronological order."
+    )
+    async def operations_get_customer_notes(customer_id: str, limit: int = 20) -> dict:
+        """Get customer notes."""
+        return await operations_server_instance.call_tool("Operations.get_customer_notes", {
+            "customer_id": customer_id,
+            "limit": limit,
+        })
+
+    @mcp_server.tool(
+        name="Operations.create_follow_up_task",
+        description="Schedule a structured operational follow-up task for a customer with priority, due date, assignee, and audit entry."
+    )
+    async def operations_create_follow_up_task(
+        customer_id: str,
+        title: str,
+        description: str = None,
+        priority: str = "Medium",
+        due_date: str = None,
+        assignee: str = None
+    ) -> dict:
+        """Create follow-up task."""
+        return await operations_server_instance.call_tool("Operations.create_follow_up_task", {
+            "customer_id": customer_id,
+            "title": title,
+            "description": description,
+            "priority": priority,
+            "due_date": due_date,
+            "assignee": assignee,
+        })
+
+    @mcp_server.tool(
+        name="Operations.list_follow_up_tasks",
+        description="Query scheduled operational tasks across customer accounts, optionally filtered by customer ID or status."
+    )
+    async def operations_list_follow_up_tasks(customer_id: str = None, status: str = None) -> dict:
+        """List follow-up tasks."""
+        return await operations_server_instance.call_tool("Operations.list_follow_up_tasks", {
+            "customer_id": customer_id,
+            "status": status,
+        })
+
+    @mcp_server.tool(
+        name="Operations.update_follow_up_task_status",
+        description="Mark an operational follow-up task as 'completed' or 'pending'. Records an audit entry."
+    )
+    async def operations_update_follow_up_task_status(task_id: int, status: str) -> dict:
+        """Update follow-up task status."""
+        return await operations_server_instance.call_tool("Operations.update_follow_up_task_status", {
+            "task_id": task_id,
+            "status": status,
+        })
+
+    @mcp_server.tool(
+        name="Operations.get_audit_history",
+        description="Retrieve immutable database audit logs for customer operations changes: timestamps, tool, action, old/new diffs."
+    )
+    async def operations_get_audit_history(customer_id: str = None, limit: int = 50) -> dict:
+        """Get audit history."""
+        return await operations_server_instance.call_tool("Operations.get_audit_history", {
+            "customer_id": customer_id,
+            "limit": limit,
+        })
+
+    # Resources
+    @mcp_server.resource("operations://customers")
+    def operations_customers_resource() -> str:
+        """Direct access resource listing all persistent customer accounts and operational states."""
+        db = SessionLocal()
+        try:
+            accounts = db.query(CustomerAccount).order_by(CustomerAccount.created_at.desc()).all()
+            result = [operations_server_instance._account_payload(a) for a in accounts]
+            return json.dumps(result, indent=2)
+        finally:
+            db.close()
+
+    @mcp_server.resource("operations://tasks")
+    def operations_tasks_resource() -> str:
+        """Direct access resource listing all scheduled operational follow-up tasks."""
+        db = SessionLocal()
+        try:
+            tasks = db.query(FollowUpTask).order_by(FollowUpTask.created_at.desc()).all()
+            result = [operations_server_instance._task_payload(t) for t in tasks]
+            return json.dumps(result, indent=2)
+        finally:
+            db.close()
+
+    @mcp_server.resource("operations://audit")
+    def operations_audit_resource() -> str:
+        """Direct access resource reading latest immutable audit trail entries."""
+        db = SessionLocal()
+        try:
+            logs = db.query(OperationAuditLog).order_by(OperationAuditLog.created_at.desc()).limit(50).all()
+            result = [operations_server_instance._audit_payload(l) for l in logs]
+            return json.dumps(result, indent=2)
+        finally:
+            db.close()
+
+    # Prompts
+    @mcp_server.prompt("operations_onboard_customer")
+    def operations_onboard_customer_prompt(company_name: str, owner: str = "Tiya") -> str:
+        """Structured customer onboarding workflow prompt template."""
+        return (
+            f"You are onboarding a new enterprise customer: '{company_name}'.\n"
+            f"1. Generate a uppercase customer_id.\n"
+            f"2. Call 'Operations.create_customer' with company_name='{company_name}', owner='{owner}', status='Active'.\n"
+            f"3. Call 'Operations.add_customer_note' with initial onboarding details.\n"
+            f"4. Call 'Operations.create_follow_up_task' with priority='High' to schedule the initial technical onboarding sync."
+        )
+
+    @mcp_server.prompt("operations_audit_investigation")
+    def operations_audit_investigation_prompt(customer_id: str) -> str:
+        """Compliance audit investigation prompt template."""
+        return (
+            f"Perform an audit investigation for customer account '{customer_id.upper()}'.\n"
+            f"Query 'Operations.get_audit_history' to inspect all status changes, note creations, and task executions."
+        )
+
+except ImportError:
+    mcp_server = None
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Customer Operations MCP Server (Official Model Context Protocol)")
+    parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio", help="Transport protocol (stdio or sse)")
+    parser.add_argument("--port", type=int, default=8003, help="Port for SSE transport (default: 8003)")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for SSE transport")
+    args = parser.parse_args()
+
+    if mcp_server is None:
+        sys.exit("Error: 'mcp' Python package is not installed.")
+
+    if args.transport == "stdio":
+        mcp_server.run(transport="stdio")
+    else:
+        mcp_server.run(transport="sse", host=args.host, port=args.port)

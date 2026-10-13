@@ -372,15 +372,15 @@ async def test_21_argument_templating_and_output_forwarding():
 # ----------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_22_autonomous_self_correction_entity_resolution():
-    # Verify CRM search resolves "NovaHealth" to canonical ID "NOVA"
+    # Verify CRM search resolves "Spotify" to canonical ID "SPOTIFY"
     search_res = await mcp_client_manager.execute_tool(
         tool_name="CRM.search_customer",
-        arguments={"query": "NovaHealth"},
+        arguments={"query": "Spotify"},
         allowed_tools=["CRM.search_customer", "CRM.get_customer"]
     )
     assert search_res["success"] is True
     assert len(search_res["result"]["results"]) > 0
-    assert search_res["result"]["results"][0]["customer_id"] == "NOVA"
+    assert search_res["result"]["results"][0]["customer_id"] == "SPOTIFY"
 
 
 # ----------------------------------------------------------------------
@@ -391,7 +391,7 @@ async def test_23_luna_autonomous_multi_domain_execution():
     wf = create_agent_workflow()
     result = await wf.run(
         agent_id="luna",
-        query="Give me an operational and financial breakdown for NovaHealth Solutions.",
+        query="Give me an operational and financial breakdown for Spotify.",
         conversation_id="test_luna_autonomous"
     )
     assert result["status"] == "completed"

@@ -7,6 +7,7 @@ import re
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.memory.store import MemoryStore
+from app.models.memory import Conversation
 
 class MemoryManager:
     """Coordinates memory loading, relevance filtering, context window compression, and user context extraction."""
@@ -217,9 +218,14 @@ class MemoryManager:
         if not conversation_id:
             return
 
-        auto_title = user_query.strip().split("\n")[0]
-        if len(auto_title) > 48:
-            auto_title = auto_title[:45] + "..."
+        # Automatically generate a concise, descriptive conversation name using GROQ_API_KEY2
+        # if the conversation is new or currently has the default 'New Chat' title.
+        existing_conv = db.query(Conversation).filter(Conversation.conversation_id == conversation_id).first()
+        if not existing_conv or existing_conv.title in ("New Chat", None, ""):
+            from app.workflow.llm_provider import llm_provider
+            auto_title = llm_provider.generate_conversation_name(user_query)
+        else:
+            auto_title = existing_conv.title
 
         MemoryStore.get_or_create_conversation(
             db=db,

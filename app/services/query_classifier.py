@@ -33,42 +33,58 @@ class QueryClassifier:
     Lightweight rule-based query classifier that produces structured classification.
     """
 
-    KNOWN_ENTITIES = ["ABC", "XYZ", "ACME", "NOVA", "FINTECH", "CLOUD"]
+    KNOWN_ENTITIES = ["SPOTIFY", "STRIPE", "DATADOG", "SHOPIFY"]
     STOP_WORDS = {
-        "WITH", "THE", "FOR", "AND", "NEW", "NAME", "FROM", "COMPANY", "A", "AN",
-        "CUSTOMER", "CUSTOMERS", "ID", "STATUS", "NOTE", "NOTES", "TASK", "TASKS",
-        "ALL", "IS", "IN", "TO", "OF", "ON", "AT", "BY", "THIS", "THAT", "IT"
+        "WITH", "THE", "FOR", "AND", "NEW", "NAME", "NAMED", "CALLED", "TITLED",
+        "FROM", "COMPANY", "A", "AN", "CUSTOMER", "CUSTOMERS", "ID", "STATUS",
+        "NOTE", "NOTES", "TASK", "TASKS", "ALL", "IS", "IN", "TO", "OF", "ON",
+        "AT", "BY", "THIS", "THAT", "IT", "RECORD", "ACCOUNT", "ACCOUNTS"
     }
 
     def classify(self, query: str) -> QueryClassification:
         q_lower = query.lower().strip()
 
-        # 1. Extract target entities
+        # 1. Extract target entities (static + dynamic CustomerAccount records)
         entities: List[str] = []
         for ent in self.KNOWN_ENTITIES:
             pattern = rf"\b{ent}\b"
             if re.search(pattern, query, re.IGNORECASE) and ent not in entities:
                 entities.append(ent)
 
+        try:
+            from app.services.data_service import data_service
+            for cust in data_service.list_customers():
+                cid = cust.get("customer_id", "").strip().upper()
+                cname = cust.get("company_name", "").strip()
+                if cid and cid not in entities:
+                    if re.search(rf"\b{re.escape(cid)}\b", query, re.IGNORECASE):
+                        entities.append(cid)
+                    elif cname and len(cname) >= 3 and re.search(rf"\b{re.escape(cname)}\b", query, re.IGNORECASE):
+                        entities.append(cid)
+        except Exception:
+            pass
+
         # Regex for explicit IDs like "ID TEST001", "id: TEST001", "customer TEST001", "for TEST001"
         id_patterns = [
             r"\b(?:id|customer_id)\s*[:=]?\s*([A-Za-z0-9_-]{2,32})\b",
+            r"\bcustomer\s+(?:named|called)\s+([A-Za-z0-9_-]+(?:\s+[A-Za-z0-9_-]+)?)(?=\s+(?:and|with|whose|his|her|its|having|status|id)\b|[.,;]|$)",
             r"\bcustomer\s+([A-Za-z0-9_-]{2,32})\b",
             r"\bfor\s+([A-Z0-9_-]{3,32})\b",
             r"\b([A-Z]{2,10}\d{1,6})\b",  # e.g. TEST001, CUST123
         ]
         for pat in id_patterns:
             for match in re.finditer(pat, query, re.IGNORECASE):
-                candidate = match.group(1).strip().upper()
+                raw_cand = match.group(1).strip()
+                candidate = re.sub(r"\s+", "_", raw_cand).upper()
                 if candidate not in self.STOP_WORDS and candidate not in entities and len(candidate) >= 2:
                     entities.append(candidate)
 
         # 2. Action / Operations intent detection
         is_create_intent = bool(re.search(r"\b(create|add|register|provision|new)\s+(?:a\s+)?(?:new\s+)?customer\b", q_lower))
-        is_status_intent = bool(re.search(r"\b(update|change|set|mark)\b.*\b(status|active|inactive|churned|suspended)\b", q_lower))
+        is_status_intent = bool(re.search(r"\b(update|change|set|mark|assign)\b.*\b(status|active|inactive|churned|suspended|renewal|owner)\b", q_lower))
         is_note_intent = bool(re.search(r"\b(add|create|insert|save|append|show|list)\b.*\b(note|notes)\b", q_lower))
-        is_task_intent = bool(re.search(r"\b(create|add|assign|follow-up|follow up|task|tasks|list tasks|show tasks)\b", q_lower))
-        is_list_customers_intent = bool(re.search(r"\b(list|show|all)\s+customers\b", q_lower) and not entities)
+        is_task_intent = bool(re.search(r"\b(create|add|assign|follow-up|follow up|task|tasks|list tasks|show tasks)\b", q_lower)) and not is_status_intent
+        is_list_customers_intent = bool(re.search(r"\b(list|show|view|get|display|all)\s+(?:all\s+|the\s+|our\s+|active\s+|current\s+)*customers\b", q_lower) and not entities)
         is_audit_intent = bool(re.search(r"\b(audit|history|logs|changes)\b", q_lower) and "operations" in q_lower or "audit history" in q_lower)
 
         is_action_intent = is_create_intent or is_status_intent or (is_note_intent and ("add" in q_lower or "create" in q_lower)) or (is_task_intent and ("create" in q_lower or "add" in q_lower)) or is_list_customers_intent or is_audit_intent

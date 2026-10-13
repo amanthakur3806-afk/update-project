@@ -138,7 +138,7 @@ def list_demo_accounts():
             "full_name": "Sarah Jenkins",
             "role": "Senior Enterprise Account Executive",
             "department": "Commercial Sales",
-            "description": "Primary AE managing accounts ABC & XYZ. Focus on contract renewals, multi-year volume pricing, and SLA governance."
+            "description": "Primary AE managing accounts Spotify ($3.6M ARR) & Stripe ($5.2M ARR). Focus on renewals, multi-year volume pricing, and SLA governance."
         },
         {
             "username": "alex",
@@ -146,7 +146,7 @@ def list_demo_accounts():
             "full_name": "Alex Chen",
             "role": "Lead Support Operations Architect",
             "department": "Customer Operations",
-            "description": "Technical Operations Lead managing platform uptime, Sev-1 incident protocols, and task execution for NOVA & QUANTUM."
+            "description": "Technical Operations Lead managing platform uptime, Sev-1 incident protocols, and task execution for Datadog ($2.8M ARR) & Shopify ($4.1M ARR)."
         },
         {
             "username": "admin",
@@ -154,6 +154,6 @@ def list_demo_accounts():
             "full_name": "Elena Rostova",
             "role": "Executive VP Operations & Strategy",
             "department": "Executive Leadership",
-            "description": "Executive portfolio oversight, company-wide ARR/MRR health metrics, churn risk auditing, and compliance policy verification."
+            "description": "Executive portfolio oversight, company-wide ARR/MRR health metrics, churn risk auditing, and compliance policy verification across all enterprise accounts."
         }
     ]

@@ -1,8 +1,8 @@
 """
 CRM MCP Server
 ==============
-Exposes customer relationship management (CRM) tools conforming to the
-Model Context Protocol (MCP) standard.
+Exposes customer relationship management (CRM) tools, resources, and prompt templates
+conforming to the official Model Context Protocol (MCP) standard.
 
 Registered server ID: 'crm_mcp'
 Exposes tools:
@@ -10,13 +10,30 @@ Exposes tools:
   - CRM.search_customer   : Search customers by company name, industry, or ID
   - CRM.update_notes      : Append an operational note to a customer record
 
-Zero hardcoded business data:
-  Delegates all data operations to `data_service`.
-  If a customer does not exist, returns an explicit `found: False` status
-  rather than fabricating records (Zero Silent Fallbacks rule).
+Exposes resources:
+  - crm://customers               : Direct JSON list of all active CRM accounts
+  - crm://customers/{customer_id} : Direct JSON dossier of a specific customer
+
+Exposes prompts:
+  - crm_account_briefing   : Executive commercial briefing template
+  - crm_stakeholder_dossier: Stakeholder mapping and ownership template
+
+Direct CLI execution:
+  python app/mcp/servers/crm_server.py                    # STDIO transport
+  python app/mcp/servers/crm_server.py --transport sse   # SSE transport on port 8001
 """
+import sys
+import os
+import json
 import datetime
+from pathlib import Path
 from typing import Dict, Any, List
+
+# Ensure project root is in sys.path for direct script execution
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from app.services.data_service import data_service
 
 
@@ -47,7 +64,7 @@ class CRMMCPServer:
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Unique customer identifier, e.g. 'ABC', 'XYZ', 'ACME', 'NOVA', 'VERTEX', 'QUANTUM'",
+                            "description": "Unique customer identifier, e.g. 'STRIPE', 'SHOPIFY', 'SPOTIFY', 'DATADOG'",
                         }
                     },
                     "required": ["customer_id"],
@@ -83,7 +100,7 @@ class CRMMCPServer:
                     "properties": {
                         "customer_id": {
                             "type": "string",
-                            "description": "Unique customer ID, e.g. 'ABC', 'XYZ'",
+                            "description": "Unique customer ID, e.g. 'STRIPE', 'SPOTIFY'",
                         },
                         "note": {
                             "type": "string",
@@ -181,3 +198,89 @@ class CRMMCPServer:
 
 # Global singleton
 crm_server_instance = CRMMCPServer()
+
+# ----------------------------------------------------------------------
+# Official Model Context Protocol (MCP) Server Instance
+# ----------------------------------------------------------------------
+try:
+    from mcp.server.mcpserver import MCPServer
+    mcp_server = MCPServer("CRM MCP Server")
+
+    # Tools
+    @mcp_server.tool(
+        name="CRM.get_customer",
+        description="Retrieve the commercial CRM profile and stakeholder dossier for a customer (e.g. 'SPOTIFY', 'STRIPE', 'DATADOG', 'SHOPIFY')."
+    )
+    async def crm_get_customer(customer_id: str) -> dict:
+        """Retrieve commercial CRM profile by customer ID."""
+        return await crm_server_instance.call_tool("CRM.get_customer", {"customer_id": customer_id})
+
+    @mcp_server.tool(
+        name="CRM.search_customer",
+        description="Search enterprise CRM customer directory across company names, industries, tiers, or customer ID keywords."
+    )
+    async def crm_search_customer(query: str) -> dict:
+        """Search enterprise CRM customer directory."""
+        return await crm_server_instance.call_tool("CRM.search_customer", {"query": query})
+
+    @mcp_server.tool(
+        name="CRM.update_notes",
+        description="Append a strategic commercial or executive stakeholder meeting note to a customer's CRM record."
+    )
+    async def crm_update_notes(customer_id: str, note: str) -> dict:
+        """Append commercial or relationship note."""
+        return await crm_server_instance.call_tool("CRM.update_notes", {"customer_id": customer_id, "note": note})
+
+    # Resources
+    @mcp_server.resource("crm://customers")
+    def crm_list_all_customers_resource() -> str:
+        """Direct access resource listing all customer records currently in the CRM catalog."""
+        customers = data_service.list_customers()
+        return json.dumps(customers, indent=2)
+
+    @mcp_server.resource("crm://customers/{customer_id}")
+    def crm_get_customer_dossier_resource(customer_id: str) -> str:
+        """Direct access resource reading a specific customer's CRM dossier and commercial contracts."""
+        record = data_service.get_customer(customer_id.upper())
+        if not record:
+            return json.dumps({"error": f"Customer '{customer_id}' not found in CRM"}, indent=2)
+        return json.dumps(record, indent=2)
+
+    # Prompts
+    @mcp_server.prompt("crm_account_briefing")
+    def crm_account_briefing_prompt(customer_id: str) -> str:
+        """Executive prompt template to synthesize commercial health, tier commitments, and stakeholder alignments."""
+        return (
+            f"You are conducting an executive commercial briefing for account '{customer_id.upper()}'.\n"
+            f"1. Query 'CRM.get_customer' with customer_id='{customer_id.upper()}' to examine the account profile.\n"
+            f"2. Summarize contract tier, SLA commitments, active executive stakeholders, and commercial notes.\n"
+            f"3. Highlight upcoming contract renewal terms and strategic relationship priorities."
+        )
+
+    @mcp_server.prompt("crm_stakeholder_dossier")
+    def crm_stakeholder_dossier_prompt(customer_id: str) -> str:
+        """Stakeholder mapping prompt template for enterprise account management."""
+        return (
+            f"Please map the executive and operational stakeholders for account '{customer_id.upper()}'.\n"
+            f"Identify the account owner, primary executive sponsor, SLA escalation contacts, and meeting notes history."
+        )
+
+except ImportError:
+    mcp_server = None
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="CRM MCP Server (Official Model Context Protocol)")
+    parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio", help="Transport protocol (stdio or sse)")
+    parser.add_argument("--port", type=int, default=8001, help="Port for SSE transport (default: 8001)")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for SSE transport")
+    args = parser.parse_args()
+
+    if mcp_server is None:
+        sys.exit("Error: 'mcp' Python package is not installed.")
+
+    if args.transport == "stdio":
+        mcp_server.run(transport="stdio")
+    else:
+        mcp_server.run(transport="sse", host=args.host, port=args.port)

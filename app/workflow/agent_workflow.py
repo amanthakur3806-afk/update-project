@@ -434,7 +434,8 @@ class AgentOrchestratorWorkflow(Workflow):
         planned_tools = llm_provider.plan_tools(
             query=ev.query,
             available_tools=permitted_tools,
-            knowledge_chunks=ev.retrieved_chunks
+            knowledge_chunks=ev.retrieved_chunks,
+            short_term_history=ev.short_term_history
         )
         planned_names = ", ".join(tool["tool_name"] for tool in planned_tools) or "no MCP tools required"
         await progress_bus.publish(

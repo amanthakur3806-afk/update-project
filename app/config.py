@@ -46,6 +46,10 @@ class Settings(BaseModel):
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip()
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 
+    # Groq Secondary Key — used for conversation name generation and as
+    # automatic fallback if the primary GROQ_API_KEY hits rate limits or fails.
+    GROQ_API_KEY2: str = os.getenv("GROQ_API_KEY2", "").strip()
+
     # OpenAI (optional)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

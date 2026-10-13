@@ -15,6 +15,7 @@ import re
 import json
 import logging
 import random
+import time
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 from app.config import settings
 from app.services.query_classifier import query_classifier
@@ -71,6 +72,10 @@ class LLMProvider:
         self._client = None
         self._async_client = None
         self._provider_type = None
+        # Secondary Groq client — dedicated to conversation naming and as
+        # automatic fallback when the primary key is rate-limited or fails.
+        self._secondary_client = None
+        self._secondary_async_client = None
 
     def _get_client(self):
         if self._client is not None:
@@ -129,6 +134,136 @@ class LLMProvider:
                 logger.warning(f"Failed to initialize OpenAI async client: {e}")
 
         return None, "local"
+
+    # ------------------------------------------------------------------
+    # Secondary Groq Client (GROQ_API_KEY2)
+    # Used for: (a) conversation name generation  (b) fallback on main key failure
+    # ------------------------------------------------------------------
+    def _get_secondary_client(self):
+        """Return the secondary Groq sync client (GROQ_API_KEY2), or None."""
+        if self._secondary_client is not None:
+            return self._secondary_client
+        if settings.GROQ_API_KEY2:
+            try:
+                from openai import OpenAI
+                self._secondary_client = OpenAI(
+                    api_key=settings.GROQ_API_KEY2,
+                    base_url="https://api.groq.com/openai/v1",
+                    timeout=15.0
+                )
+                return self._secondary_client
+            except Exception as e:
+                logger.warning(f"Failed to initialize secondary Groq client: {e}")
+        return None
+
+    def _get_secondary_async_client(self):
+        """Return the secondary Groq async client (GROQ_API_KEY2), or None."""
+        if self._secondary_async_client is not None:
+            return self._secondary_async_client
+        if settings.GROQ_API_KEY2:
+            try:
+                from openai import AsyncOpenAI
+                self._secondary_async_client = AsyncOpenAI(
+                    api_key=settings.GROQ_API_KEY2,
+                    base_url="https://api.groq.com/openai/v1",
+                    timeout=15.0
+                )
+                return self._secondary_async_client
+            except Exception as e:
+                logger.warning(f"Failed to initialize secondary Groq async client: {e}")
+        return None
+
+    # ------------------------------------------------------------------
+    # Conversation Name Generation (uses GROQ_API_KEY2 exclusively)
+    # ------------------------------------------------------------------
+    def generate_conversation_name(self, user_message: str) -> str:
+        """
+        Generate a short, descriptive conversation title from the user's first
+        message using the secondary Groq key (GROQ_API_KEY2).
+
+        Falls back to simple truncation if the secondary key is unavailable
+        or the LLM call fails.
+        """
+        fallback = user_message.strip().split("\n")[0]
+        if len(fallback) > 48:
+            fallback = fallback[:45] + "..."
+
+        client = self._get_secondary_client()
+        if client is None:
+            return fallback
+
+        try:
+            resp = client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You generate ultra-short conversation titles. "
+                            "Return ONLY the title text — no quotes, no explanation, no punctuation at the end. "
+                            "Maximum 6 words. Be specific and descriptive."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Generate a concise title for a conversation that starts with this message:\n\"{user_message[:300]}\""
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=30
+            )
+            title = resp.choices[0].message.content.strip().strip('"\'.')
+            if title and len(title) > 2:
+                # Enforce length limit
+                if len(title) > 64:
+                    title = title[:61] + "..."
+                return title
+        except Exception as e:
+            logger.warning(f"Conversation name generation via GROQ_API_KEY2 failed: {e}")
+
+        return fallback
+
+    async def generate_conversation_name_async(self, user_message: str) -> str:
+        """
+        Async version of conversation name generation using GROQ_API_KEY2.
+        """
+        fallback = user_message.strip().split("\n")[0]
+        if len(fallback) > 48:
+            fallback = fallback[:45] + "..."
+
+        client = self._get_secondary_async_client()
+        if client is None:
+            return fallback
+
+        try:
+            resp = await client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You generate ultra-short conversation titles. "
+                            "Return ONLY the title text — no quotes, no explanation, no punctuation at the end. "
+                            "Maximum 6 words. Be specific and descriptive."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Generate a concise title for a conversation that starts with this message:\n\"{user_message[:300]}\""
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=30
+            )
+            title = resp.choices[0].message.content.strip().strip('"\'.')
+            if title and len(title) > 2:
+                if len(title) > 64:
+                    title = title[:61] + "..."
+                return title
+        except Exception as e:
+            logger.warning(f"Async conversation name generation via GROQ_API_KEY2 failed: {e}")
+
+        return fallback
 
     def extract_user_facts(self, query: str) -> List[Dict[str, Any]]:
         """
@@ -192,7 +327,8 @@ class LLMProvider:
         self,
         query: str,
         available_tools: List[Dict[str, Any]],
-        knowledge_chunks: List[Dict[str, Any]]
+        knowledge_chunks: List[Dict[str, Any]],
+        short_term_history: Optional[List[Dict[str, str]]] = None
     ) -> List[Dict[str, Any]]:
         """
         Determines which tools to invoke based on user query analysis,
@@ -200,9 +336,27 @@ class LLMProvider:
         """
         planned = []
         classification = query_classifier.classify(query)
-        entities = classification.target_entities
+        entities = list(classification.target_entities)
         avail_canon = {t["name"].lower(): t["name"] for t in available_tools}
         q_lower = query.lower()
+
+        is_global_list_customers = bool(
+            (
+                re.search(r"\b(list|show|view|get|display|all)\s+(?:all\s+|the\s+|our\s+|active\s+|current\s+)*customers\b", q_lower)
+                or re.search(r"\b(list|show|display)\s+(?:all\s+of\s+)?them(?:\s+again)?\b", q_lower)
+            )
+            and not entities
+        )
+
+        # Resolve pronouns ("it", "its", "it's", "his", "their", "this customer") from recent conversation history
+        if not entities and not is_global_list_customers and short_term_history:
+            for turn in reversed(short_term_history):
+                content = turn.get("content", "") if isinstance(turn, dict) else str(turn)
+                if content:
+                    hist_entities = query_classifier.classify(content).target_entities
+                    if hist_entities:
+                        entities = [hist_entities[0]]
+                        break
 
         # Check if agent has access to Operations tools
         has_operations = any(name.startswith("operations.") for name in avail_canon)
@@ -217,28 +371,53 @@ class LLMProvider:
                     customer_id = entities[0] if entities else "CUST001"
                     # Extract company name
                     comp_match = re.search(r"(?:company\s+(?:name\s+)?|company\s*[:=]\s*|with\s+company\s+)(['\"]?)(.+?)\1(?:\.|$|\s+and\s+status|\s+with\s+status)", query, re.IGNORECASE)
+                    named_match = re.search(r"\bcustomer\s+(?:named|called)\s+([A-Za-z0-9_-]+(?:\s+[A-Za-z0-9_-]+)?)(?=\s+(?:and|with|whose|his|her|its|having|status|id)\b|[.,;]|$)", query, re.IGNORECASE)
                     if comp_match:
                         company_name = comp_match.group(2).strip(" .,;\"'")
+                    elif named_match:
+                        company_name = named_match.group(1).strip(" .,;\"'").title()
                     elif ":" in query:
                         company_name = query.split(":", 1)[1].strip()
                     else:
-                        # Try to extract name from words after customer_id
-                        company_name = f"{customer_id} Corporation" if customer_id else "New Corporation"
-                    
-                    return [{
+                        clean_name = customer_id.replace("_", " ").title() if customer_id else "New"
+                        company_name = f"{clean_name} Corporation" if not clean_name.endswith("Corporation") else clean_name
+
+                    create_args: Dict[str, Any] = {
+                        "customer_id": customer_id,
+                        "company_name": company_name,
+                        "status": "Active"
+                    }
+                    ren_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", query)
+                    if ren_match:
+                        create_args["renewal_date"] = ren_match.group(1)
+                    own_match = re.search(r"\bowner(?:\s+name|\s+is|\s+to)?\s*[:=]?\s*([A-Za-z][A-Za-z\s.]{1,35}?)(?=\s+(?:and|with|renewal|status)\b|[.,;]|$)", query, re.IGNORECASE)
+                    if own_match:
+                        create_args["owner"] = own_match.group(1).strip()
+
+                    steps = [{
                         "id": "step_create_customer",
                         "tool_name": avail_canon["operations.create_customer"],
-                        "arguments": {
-                            "customer_id": customer_id,
-                            "company_name": company_name,
-                            "status": "Active"
-                        },
+                        "arguments": create_args,
                         "depends_on": []
                     }]
 
+                    # If the user also included extra profile details (e.g., CEO, revenue, ARR, tier, contact), record an operational note
+                    if "operations.add_customer_note" in avail_canon and any(w in q_lower for w in ["ceo", "revenue", "arr", "contact", "tier", "headquarters"]):
+                        steps.append({
+                            "id": "step_add_initial_profile_note",
+                            "tool_name": avail_canon["operations.add_customer_note"],
+                            "arguments": {
+                                "customer_id": customer_id,
+                                "note": f"Initial onboarding details: {query.strip()}",
+                                "author": "Luna Autonomous Agent"
+                            },
+                            "depends_on": ["step_create_customer"]
+                        })
+
+                    return steps
+
             # B. List Customers
-            if (any(k in q_lower for k in ["list all customers", "list customers", "show all customers", "show customers", "view customers", "get all customers"])
-                and not entities and "operations.list_customers" in avail_canon):
+            if is_global_list_customers and "operations.list_customers" in avail_canon:
                 return [{
                     "id": "step_list_customers",
                     "tool_name": avail_canon["operations.list_customers"],
@@ -257,27 +436,66 @@ class LLMProvider:
                 }]
 
             # D. Get Notes
-            if any(k in q_lower for k in ["show notes", "list notes", "get notes", "view notes"]) and entities and "operations.get_customer_notes" in avail_canon:
-                customer_id = entities[0]
+            if any(k in q_lower for k in [
+                "show notes", "list notes", "get notes", "view notes",
+                "customer notes", "operational notes", "all notes", "notes for"
+            ]) and "operations.get_customer_notes" in avail_canon:
+                customer_id = entities[0] if entities else None
                 return [{
                     "id": "step_get_notes",
                     "tool_name": avail_canon["operations.get_customer_notes"],
-                    "arguments": {"customer_id": customer_id},
+                    "arguments": {"customer_id": customer_id} if customer_id else {},
                     "depends_on": []
                 }]
 
-            # E. List Follow-up Tasks
-            if any(k in q_lower for k in ["show follow-up tasks", "show follow up tasks", "list follow-up tasks", "list tasks", "show tasks", "get tasks"]) and entities and "operations.list_follow_up_tasks" in avail_canon:
+            # E. Create Task
+            if any(k in q_lower for k in [
+                "create a follow-up task", "create follow-up task", "create follow up task",
+                "create a task", "create task", "add task", "add a task", "new task"
+            ]) and entities and "operations.create_follow_up_task" in avail_canon:
                 customer_id = entities[0]
+                title_match = re.search(r"(?:called|named|title|task)\s+['\"]?(.+?)['\"]?(?:\s+for|\s+with|\.|$)", query, re.IGNORECASE)
+                title = title_match.group(1).strip(" .,;\"'") if title_match else "Customer follow-up"
+                return [{
+                    "id": "step_create_task",
+                    "tool_name": avail_canon["operations.create_follow_up_task"],
+                    "arguments": {
+                        "customer_id": customer_id,
+                        "title": title
+                    },
+                    "depends_on": []
+                }]
+
+            # F. List Follow-up Tasks
+            if any(k in q_lower for k in [
+                "list follow-up tasks", "list follow up tasks", "show follow-up tasks", "show follow up tasks",
+                "list tasks", "show tasks", "get tasks", "pending tasks", "open tasks",
+                "tasks for", "assigned to", "all tasks", "what tasks", "view tasks"
+            ]) and not any(k in q_lower for k in ["create", "add", "new task"]) and "operations.list_follow_up_tasks" in avail_canon:
+                if len(entities) > 1:
+                    # When multiple entities are mentioned (e.g. Spotify and Stripe), query each entity's tasks
+                    return [
+                        {
+                            "id": f"step_list_tasks_{ent.lower()}",
+                            "tool_name": avail_canon["operations.list_follow_up_tasks"],
+                            "arguments": {"customer_id": ent},
+                            "depends_on": []
+                        }
+                        for ent in entities
+                    ]
+                customer_id = entities[0] if entities else None
+                task_args = {}
+                if customer_id:
+                    task_args["customer_id"] = customer_id
                 return [{
                     "id": "step_list_tasks",
                     "tool_name": avail_canon["operations.list_follow_up_tasks"],
-                    "arguments": {"customer_id": customer_id},
+                    "arguments": task_args,
                     "depends_on": []
                 }]
 
-            # F. Update Status
-            if any(k in q_lower for k in ["change", "update", "set", "mark"]) and any(k in q_lower for k in ["status", "active", "churned", "inactive", "suspended"]) and entities and "operations.update_customer_status" in avail_canon:
+            # F2. Update Status, Renewal Date, or Owner
+            if any(k in q_lower for k in ["change", "update", "set", "mark", "assign"]) and any(k in q_lower for k in ["status", "active", "churned", "inactive", "suspended", "renewal", "owner"]) and entities and "operations.update_customer_status" in avail_canon:
                 customer_id = entities[0]
                 status = "Active"
                 if "churn" in q_lower:
@@ -288,14 +506,23 @@ class LLMProvider:
                     status = "Suspended"
                 elif "active" in q_lower:
                     status = "Active"
+
+                update_args: Dict[str, Any] = {
+                    "customer_id": customer_id,
+                    "status": status,
+                    "reason": query
+                }
+                ren_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", query)
+                if ren_match:
+                    update_args["renewal_date"] = ren_match.group(1)
+                own_match = re.search(r"\bowner(?:\s+name|\s+is|\s+to)?\s*[:=]?\s*([A-Za-z][A-Za-z\s.]{1,35}?)(?=\s+(?:and|with|renewal|status)\b|[.,;]|$)", query, re.IGNORECASE)
+                if own_match:
+                    update_args["owner"] = own_match.group(1).strip()
+
                 return [{
                     "id": "step_update_status",
                     "tool_name": avail_canon["operations.update_customer_status"],
-                    "arguments": {
-                        "customer_id": customer_id,
-                        "status": status,
-                        "reason": query
-                    },
+                    "arguments": update_args,
                     "depends_on": []
                 }]
 
@@ -319,20 +546,6 @@ class LLMProvider:
                     "depends_on": []
                 }]
 
-            # H. Create Task
-            if any(k in q_lower for k in ["create a follow-up task", "create follow-up task", "create follow up task", "create a task", "create task", "add task"]) and entities and "operations.create_follow_up_task" in avail_canon:
-                customer_id = entities[0]
-                title_match = re.search(r"(?:called|named|title|task)\s+['\"]?(.+?)['\"]?(?:\s+for|\s+with|\.|$)", query, re.IGNORECASE)
-                title = title_match.group(1).strip(" .,;\"'") if title_match else "Customer follow-up"
-                return [{
-                    "id": "step_create_task",
-                    "tool_name": avail_canon["operations.create_follow_up_task"],
-                    "arguments": {
-                        "customer_id": customer_id,
-                        "title": title
-                    },
-                    "depends_on": []
-                }]
 
             # I. Operations Get Customer
             if any(k in q_lower for k in ["get customer", "show customer", "lookup customer", "view customer", "details for", "customer details"]) and entities and "operations.get_customer" in avail_canon:
@@ -407,7 +620,7 @@ class LLMProvider:
         user_profile: Optional[Dict[str, Any]] = None,
         model: str = "gpt-4o-mini",
         temperature: float = 0.2,
-        max_tokens: int = 800,
+        max_tokens: int = 1500,
         on_token: Optional[Callable[[str], None]] = None
     ) -> str:
         """
@@ -427,8 +640,9 @@ class LLMProvider:
             "3. If a tool failed or returned not found, clearly state the error or absence of data.\n"
             "4. Never claim an action occurred unless verified by successful tool execution.\n\n"
             "=== STRICT RESPONSE FORMAT RULES ===\n"
-            "- Always format your entire response in elegant, clear, conversational Markdown prose.\n"
-            "- Use readable headings (##, ###), bullet lists, and tables where helpful.\n"
+            "- Always format your entire response in elegant, clear, conversational Markdown.\n"
+            "- Whenever listing multiple customers, tasks, audit entries, metrics, or comparing entities, ALWAYS include a clean Markdown Table summarizing the records (e.g., | Customer ID | Company Name | Status | Account Owner | Renewal Date | Open Tasks |), followed by concise bullet highlights.\n"
+            "- Use readable headings (##, ###), Markdown tables, and bullet lists.\n"
             "- NEVER return raw JSON, JSON objects ({...}), JSON code blocks, or dictionary schemas unless the user explicitly requested JSON.\n"
             "- Write natural sentences to describe operations and actions."
         )
@@ -533,7 +747,49 @@ class LLMProvider:
                         logger.warning(f"Live LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
                         break
 
-        # Grounded Local Synthesis Engine (Deterministic offline mode when no API keys are configured)
+        # ------------------------------------------------------------------
+        # Fallback #1: Retry with GROQ_API_KEY2 (secondary key) before going offline
+        # ------------------------------------------------------------------
+        secondary = self._get_secondary_client()
+        if secondary is not None:
+            try:
+                fallback_model = settings.GROQ_MODEL
+                logger.info("Primary key exhausted — attempting completion with GROQ_API_KEY2...")
+                if on_token is not None:
+                    completion = secondary.chat.completions.create(
+                        model=fallback_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        messages=messages,
+                        stream=True
+                    )
+                    full_answer = []
+                    for chunk in completion:
+                        delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
+                        if delta:
+                            full_answer.append(delta)
+                            try:
+                                on_token(delta)
+                            except Exception:
+                                pass
+                    ans = "".join(full_answer)
+                    if ans and ans.strip():
+                        return clean_llm_markdown_output(ans)
+                else:
+                    completion = secondary.chat.completions.create(
+                        model=fallback_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        messages=messages,
+                        stream=False
+                    )
+                    ans = completion.choices[0].message.content or ""
+                    if ans and ans.strip():
+                        return clean_llm_markdown_output(ans)
+            except Exception as e:
+                logger.warning(f"Secondary key (GROQ_API_KEY2) also failed: {e}. Falling back to local grounded synthesis.")
+
+        # Fallback #2: Grounded Local Synthesis Engine (Deterministic offline mode)
         return self._local_grounded_synthesize(
             agent_name=agent_name,
             query=query,
@@ -556,7 +812,7 @@ class LLMProvider:
         user_profile: Optional[Dict[str, Any]] = None,
         model: str = "gpt-4o-mini",
         temperature: float = 0.2,
-        max_tokens: int = 800,
+        max_tokens: int = 1500,
         on_token: Optional[Callable[[str], Any]] = None
     ) -> str:
         """
@@ -575,8 +831,9 @@ class LLMProvider:
             "3. If a tool failed or returned not found, clearly state the error or absence of data.\n"
             "4. Never claim an action occurred unless verified by successful tool execution.\n\n"
             "=== STRICT RESPONSE FORMAT RULES ===\n"
-            "- Always format your entire response in elegant, clear, conversational Markdown prose.\n"
-            "- Use readable headings (##, ###), bullet lists, and tables where helpful.\n"
+            "- Always format your entire response in elegant, clear, conversational Markdown.\n"
+            "- Whenever listing multiple customers, tasks, audit entries, metrics, or comparing entities, ALWAYS include a clean Markdown Table summarizing the records (e.g., | Customer ID | Company Name | Status | Account Owner | Renewal Date | Open Tasks |), followed by concise bullet highlights.\n"
+            "- Use readable headings (##, ###), Markdown tables, and bullet lists.\n"
             "- NEVER return raw JSON, JSON objects ({...}), JSON code blocks, or dictionary schemas unless the user explicitly requested JSON.\n"
             "- Write natural sentences to describe operations and actions."
         )
@@ -684,6 +941,51 @@ class LLMProvider:
                         logger.warning(f"Live async LLM call ({ptype}) failed: {e}. Falling back to local grounded synthesis.")
                         break
 
+        # ------------------------------------------------------------------
+        # Fallback #1: Retry with GROQ_API_KEY2 (secondary key) before going offline
+        # ------------------------------------------------------------------
+        secondary_async = self._get_secondary_async_client()
+        if secondary_async is not None:
+            try:
+                fallback_model = settings.GROQ_MODEL
+                logger.info("Primary async key exhausted — attempting completion with GROQ_API_KEY2...")
+                if on_token is not None:
+                    completion = await secondary_async.chat.completions.create(
+                        model=fallback_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        messages=messages,
+                        stream=True
+                    )
+                    full_answer = []
+                    async for chunk in completion:
+                        delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else None
+                        if delta:
+                            full_answer.append(delta)
+                            try:
+                                res = on_token(delta)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            except Exception:
+                                pass
+                            await asyncio.sleep(0.002)
+                    ans = "".join(full_answer)
+                    if ans and ans.strip():
+                        return clean_llm_markdown_output(ans)
+                else:
+                    completion = await secondary_async.chat.completions.create(
+                        model=fallback_model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        messages=messages,
+                        stream=False
+                    )
+                    ans = completion.choices[0].message.content or ""
+                    if ans and ans.strip():
+                        return clean_llm_markdown_output(ans)
+            except Exception as e:
+                logger.warning(f"Secondary async key (GROQ_API_KEY2) also failed: {e}. Falling back to local grounded synthesis.")
+
         # Grounded Local Synthesis Engine fallback
         return self._local_grounded_synthesize(
             agent_name=agent_name,
@@ -765,7 +1067,11 @@ class LLMProvider:
                 has_verified = True
                 verified_lines.append("### 1. Account Profile (CRM)")
                 for l in condensed_tool_summary.split("\n"):
-                    if any(k in l for k in ["Company:", "Tier:", "SLA:", "Contract:", "Stakeholder", "Account Exec:", "CRM Profile for"]):
+                    if any(k in l for k in [
+                        "Company:", "Tier:", "SLA:", "Contract:", "Stakeholder", "Account Exec:",
+                        "CRM Profile for", "Account Owner:", "Owner:", "Primary Contact:", "Contact:",
+                        "Renewal Date:", "Notes:", "CEO:", "Revenue:"
+                    ]):
                         verified_lines.append(f"  {l.strip()}")
         else:
             missing_lines.append("- **CRM Profile**: No CRM record retrieved or customer not found.")

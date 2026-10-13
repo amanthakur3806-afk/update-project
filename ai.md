@@ -14,11 +14,13 @@
    - [2.4 `subagent.py` (The Context Condenser Sub-Agent)](#24-subagentpy-the-context-condenser-sub-agent)
 3. [The Model Context Protocol (MCP) System (`app/mcp/`)](#3-the-model-context-protocol-mcp-system-appmcp)
    - [3.1 What is MCP in Plain English?](#31-what-is-mcp-in-plain-english)
-   - [3.2 `client_manager.py` (The Tool Router & Security Guard)](#32-client_managerpy-the-tool-router--security-guard)
-   - [3.3 `server_manager.py` (The Server Lifecycle Host)](#33-server_managerpy-the-server-lifecycle-host)
-   - [3.4 `crm_server.py` (The Customer Intelligence Server)](#34-crm_serverpy-the-customer-intelligence-server)
-   - [3.5 `analytics_server.py` (The Metrics & Telemetry Server)](#35-analytics_serverpy-the-metrics--telemetry-server)
-   - [3.6 `operations_server.py` (The Database Mutation & Action Server)](#36-operations_serverpy-the-database-mutation--action-server)
+   - [3.2 Multi-Transport Architecture & Official MCP SDK Integration](#32-multi-transport-architecture--official-mcp-sdk-integration)
+   - [3.3 `client_manager.py` (The Tool Router, Security Guard & Transport Adapter)](#33-client_managerpy-the-tool-router-security-guard--transport-adapter)
+   - [3.4 `crm_server.py` (The Customer Intelligence MCP Server)](#34-crm_serverpy-the-customer-intelligence-mcp-server)
+   - [3.5 `analytics_server.py` (The Metrics & Telemetry MCP Server)](#35-analytics_serverpy-the-metrics--telemetry-mcp-server)
+   - [3.6 `operations_server.py` (The Database Mutation & Action MCP Server)](#36-operations_serverpy-the-database-mutation--action-mcp-server)
+   - [3.7 The Multi-Server Runner (`run_mcp.py`) & Tool Inspection (`@modelcontextprotocol/inspector`)](#37-the-multi-server-runner-run_mcppy--tool-inspection-modelcontextprotocolinspector)
+   - [3.8 Why Decoupled Microservices Beat Unified Servers in Multi-Agent Systems](#38-why-decoupled-microservices-beat-unified-servers-in-multi-agent-systems)
 4. [Enterprise Alignment & Safety Guardrails (`app/services/guardrails.py`)](#4-enterprise-alignment--safety-guardrails-appservicesguardrailspy)
    - [4.1 Why Guardrails Exist](#41-why-guardrails-exist)
    - [4.2 Layer 1: Input Guardrail & Prompt Injection Defense](#42-layer-1-input-guardrail--prompt-injection-defense)
@@ -139,9 +141,12 @@ Different deployments have different setups:
 
 `llm_provider.py` provides a unified adapter that handles all three transparently:
 1. **Live Inference with Exponential Jittered Backoff**: If Groq or OpenAI hits a `429 Rate Limit`, it automatically sleeps with randomized backoff and retries up to 3 times.
-2. **Local Grounded Synthesis Engine (`_local_grounded_synthesize`)**: If no API keys are present (or if rate limits are exhausted), this built-in engine generates deterministic, strictly grounded Markdown dossiers derived directly from tool execution results and RAG chunks.
-3. **`extract_user_facts(query)`**: A dedicated zero-temperature prompt that analyzes user queries to extract durable business context (e.g., *"Abc revenue will drop by 12%"*) while filtering out emotional venting.
-4. **`clean_llm_markdown_output(text)`**: Unwraps JSON code blocks if an LLM accidentally wraps its response in `{ "answer": "..." }`, ensuring the user always sees clean Markdown prose.
+2. **Dual-Key High Availability (`GROQ_API_KEY2`)**:
+   - **Dedicated Conversation Naming**: Employs `GROQ_API_KEY2` to generate intelligent, concise conversation titles (`generate_conversation_name()`) from initial user messages without consuming tokens or rate limits from the primary key.
+   - **Automatic Backup Failover**: If the primary key exhausts all retry attempts due to quota exhaustion or provider errors, requests automatically failover to `GROQ_API_KEY2` before resorting to offline mode.
+3. **Local Grounded Synthesis Engine (`_local_grounded_synthesize`)**: If no API keys are present (or if all external keys are exhausted), this built-in engine generates deterministic, strictly grounded Markdown dossiers derived directly from tool execution results and RAG chunks.
+4. **`extract_user_facts(query)`**: A dedicated zero-temperature prompt that analyzes user queries to extract durable business context (e.g., *"Abc revenue will drop by 12%"*) while filtering out emotional venting.
+5. **`clean_llm_markdown_output(text)`**: Unwraps JSON code blocks if an LLM accidentally wraps its response in `{ "answer": "..." }`, ensuring the user always sees clean Markdown prose.
 
 ---
 
@@ -160,77 +165,254 @@ When tools execute (e.g., fetching 12 months of analytics history or 50 customer
 ## 3. The Model Context Protocol (MCP) System (`app/mcp/`)
 
 ```mermaid
-flowchart LR
-    Agent["Agent Orchestrator (Workflow)"] --> ClientMgr["MCP Client Manager\n(app/mcp/client_manager.py)"]
-    ClientMgr --> Permissions["Agent Permission Table\n(app/models/agent.py)"]
-    Permissions --> ServerMgr["MCP Server Manager\n(app/mcp/server_manager.py)"]
-    
-    ServerMgr --> CRM["CRM Server (crm_server.py)\n- CRM.get_customer\n- CRM.search_customer\n- CRM.update_notes"]
-    ServerMgr --> Analytics["Analytics Server (analytics_server.py)\n- Analytics.get_metrics\n- Analytics.get_customer_history"]
-    ServerMgr --> Operations["Operations Server (operations_server.py)\n- Operations.create_customer\n- Operations.update_customer_status\n- Operations.add_customer_note\n- Operations.create_follow_up_task\n- Operations.list_customers\n- Operations.get_audit_history"]
+flowchart TD
+    subgraph MultiAgent["Autonomous Agent Tier"]
+        Luna["Luna Orchestrator\n(Full Platform Multi-Server)"]
+        ResearchAgent["Customer Research Agent\n(Allowed: CRM + Analytics)"]
+        FinanceAgent["Financial Analytics Agent\n(Allowed: Analytics)"]
+        OpsAgent["Operations Execution Agent\n(Allowed: Operations)"]
+    end
+
+    subgraph SecurityTier["Security & Routing Layer"]
+        ClientMgr["MCP Client Manager\n(app/mcp/client_manager.py)\n• Dynamic Discovery\n• RBAC & Parameter Screening\n• Idempotency & Safe Retry"]
+    end
+
+    MultiAgent --> ClientMgr
+
+    subgraph DiscreteServers["Decoupled MCP Microservice Servers (Official Python MCP SDK)"]
+        subgraph CRMServer["CRM MCP Server (app/mcp/servers/crm_server.py)"]
+            CRM_Tools["Tools: CRM.get_customer, CRM.search_customer, CRM.update_notes"]
+            CRM_Res["Resources: crm://customers, crm://customers/{customer_id}"]
+            CRM_Prompts["Prompts: crm_account_briefing, crm_stakeholder_dossier"]
+        end
+
+        subgraph AnalyticsServer["Analytics MCP Server (app/mcp/servers/analytics_server.py)"]
+            Ana_Tools["Tools: Analytics.get_customer_metrics, Analytics.get_customer_history"]
+            Ana_Res["Resources: analytics://metrics/{id}, analytics://history/{id}"]
+            Ana_Prompts["Prompts: analytics_churn_audit, analytics_financial_review"]
+        end
+
+        subgraph OpsServer["Customer Operations MCP Server (app/mcp/servers/operations_server.py)"]
+            Ops_Tools["Tools: Operations.create_customer, Operations.list_customers, etc. (10 Tools)"]
+            Ops_Res["Resources: operations://customers, operations://tasks, operations://audit"]
+            Ops_Prompts["Prompts: operations_onboard_customer, operations_audit_investigation"]
+        end
+    end
+
+    ClientMgr --> CRMServer
+    ClientMgr --> AnalyticsServer
+    ClientMgr --> OpsServer
+
+    subgraph Transports["Flexible Multi-Transport Execution"]
+        T_STDIO["STDIO Transport\n• npx @modelcontextprotocol/inspector\n• Claude Desktop / Cursor / CLI"]
+        T_SSE["SSE Transport\n• FastAPI Mounts (/mcp/crm/sse, etc.)\n• Standalone HTTP daemons"]
+        T_INPROC["In-Process Transport\n• Zero-overhead async coroutines\n• Used by local workflow engine"]
+    end
+
+    CRMServer -.- Transports
+    AnalyticsServer -.- Transports
+    OpsServer -.- Transports
 ```
 
+---
+
 ### 3.1 What is MCP in Plain English?
-Think of MCP as **USB-C for AI Tools**.  
-Before MCP, every developer wrote custom, messy glue code to connect an AI to a database or CRM. MCP standardizes this: every tool server exposes a clean list of tools (`list_tools()`) and a standard way to run them (`call_tool()`).
+
+Think of the **Model Context Protocol (MCP)** as **USB-C for Artificial Intelligence**.  
+
+Before late 2024, every AI vendor and development team wrote brittle, proprietary glue code to connect an LLM to internal databases, APIs, or CRMs. If you built a tool integration for OpenAI, you had to rewrite it completely for Anthropic Claude or an open-source model.
+
+MCP, pioneered as an open standard by Anthropic and adopted across the industry, solves this by acting as the **universal JSON-RPC 2.0 protocol for AI context and tool execution**. It standardizes three distinct primitives:
+
+1. **Tools**: Executable functions that LLMs can invoke with structured, JSON-schema-validated arguments (e.g., creating a customer account, calculating churn risk).
+2. **Resources**: Read-only, direct-access URI data endpoints (e.g., `crm://customers`, `analytics://metrics/{customer_id}`, `operations://audit`) that clients can inspect or load into context without executing arbitrary code.
+3. **Prompts**: Pre-engineered, reusable workflow prompt templates (e.g., executive account briefings, incident investigations) that standardize how models interact with human users.
+
+In this platform, all servers are built natively on the **official Python MCP SDK** (`mcp.server.mcpserver.MCPServer`), guaranteeing full protocol compliance with external developer tools like the **MCP Inspector** (`@modelcontextprotocol/inspector`), Claude Desktop, Cursor, and Zed.
 
 ---
 
-### 3.2 `client_manager.py` (The Tool Router & Security Guard)
+### 3.2 Multi-Transport Architecture & Official MCP SDK Integration
 
-#### Why does this file exist?
-The agent should not talk directly to database sockets. It needs a central coordinator that:
-1. Knows which servers are online.
-2. Enforces security (checks if the agent is allowed to use this tool).
-3. Distinguishes between **Read-Only tools** (safe to retry if network blips) and **Write tools** (must never be retried blindly to avoid double charges or duplicate records).
-4. Handles timeouts cleanly so a hanging tool never freezes the entire server.
+Each MCP server in the platform supports three native execution transports without requiring code modifications:
 
-#### Key Functions in `MCPClientManager`:
-- `_build_tool_registry()`: Scans connected servers, indexes tools, and marks write tools (`create_customer`, `update_status`) as `safe_to_retry = False`.
-- `check_tool_permission(tool_name, allowed_tools)`: Case-insensitive validation against database permissions.
-- `execute_tool(tool_name, arguments, allowed_tools, timeout_seconds=10.0)`: Wraps execution in `asyncio.wait_for()`, tracks latency in milliseconds, and separates transport success from business success (`found: False`).
-
----
-
-### 3.3 `server_manager.py` (The Server Lifecycle Host)
-
-#### Why does this file exist?
-Manages MCP server registration and connection transports (`inprocess`, `stdio`, or `sse`). In this platform, all servers run in-process for blazing-fast microsecond invocation without subprocess overhead.
-
----
-
-### 3.4 `crm_server.py` (The Customer Intelligence Server)
-
-#### Why does this file exist?
-Provides tools for accessing commercial customer profiles, account executives, contract tiers, and SLAs:
-- `CRM.get_customer`: Looks up tier (`Enterprise`, `Growth`), SLA response times (`15 minutes`), and contract renewal dates.
-- `CRM.search_customer`: Directory fuzzy search by company name. Used by self-correction when customer IDs are misspelled.
-- `CRM.update_notes`: Appends executive notes with automatic UTC timestamps.
+1. **STDIO Transport (Subprocess Standard Input/Output)**:
+   - Communication occurs via newline-delimited JSON-RPC 2.0 messages over `stdin` and `stdout`.
+   - **Why it matters**: This is the standard protocol used by Claude Desktop, Cursor, and the official MCP Inspector.
+   - **Standalone Execution**: Every server file contains automatic `sys.path` bootstrapping so it can be executed standalone from anywhere:
+     ```bash
+     python app/mcp/servers/crm_server.py
+     python app/mcp/servers/analytics_server.py
+     python app/mcp/servers/operations_server.py
+     ```
+2. **SSE Transport (Server-Sent Events over HTTP)**:
+   - For web-native and microservice architectures, clients establish a long-lived streaming connection over HTTP GET (for incoming server events) and send HTTP POST requests (for outgoing JSON-RPC calls).
+   - **FastAPI Integration**: In [`app/main.py`](file:///app/main.py), each server exposes its own dedicated SSE Starlette sub-application:
+     - CRM Server: `http://127.0.0.1:8080/mcp/crm/sse`
+     - Analytics Server: `http://127.0.0.1:8080/mcp/analytics/sse`
+     - Operations Server: `http://127.0.0.1:8080/mcp/operations/sse`
+   - **Standalone HTTP Daemon**: Each server can also be launched as its own dedicated port-bound HTTP server via `--transport sse --port <PORT>`.
+3. **In-Process Transport (Direct Async Coroutines)**:
+   - When the agent workflow runs locally inside the FastAPI backend, `MCPClientManager` executes tools in-process via asynchronous Python coroutines.
+   - **Why it matters**: This eliminates all IPC serialization overhead and subprocess latency, providing microsecond tool execution during live user chats and automated test runs.
 
 ---
 
-### 3.5 `analytics_server.py` (The Metrics & Telemetry Server)
+### 3.3 `client_manager.py` (The Tool Router, Security Guard & Transport Adapter)
 
 #### Why does this file exist?
-Gives the agent visibility into financial and operational customer telemetry:
-- `Analytics.get_customer_metrics`: Returns Annual Recurring Revenue (ARR), Monthly Recurring Revenue (MRR), NPS scores, churn risk percentages, active users, and API call volumes.
-- `Analytics.get_customer_history`: Returns chronological timelines of product usage, tier upgrades, and support incidents over the past $N$ months.
+The agent brain should never connect directly to raw database sockets or unvetted endpoints. `MCPClientManager` acts as the **central gateway, policy enforcer, and router** between agents and all connected MCP servers.
+
+#### Key Architectural Responsibilities:
+1. **Dynamic Tool Catalog Discovery (`_build_tool_registry`)**:
+   - Discovers all tools exposed by connected MCP servers.
+   - Classifies tools into **Read-Only** (safe to retry on transient network failures) vs. **Write** (modifies state; strictly prohibited from blind retries without idempotency guarantees).
+2. **Fine-Grained Agent Permission Enforcement (`check_tool_permission`)**:
+   - Before any tool is called, the manager verifies whether the requesting agent (`customer_research_agent`, `financial_analytics_agent`, `operations_execution_agent`, etc.) is authorized to invoke that tool based on the database permission matrix in `app/models/agent.py`.
+3. **Resilient Execution & Protocol Adapters (`execute_tool`)**:
+   - Enforces configurable per-tool execution timeouts (`asyncio.wait_for`).
+   - Automatically unpacks official MCP `CallToolResult` JSON text envelopes or raw Python dictionaries, providing seamless backward compatibility between native MCP servers and in-process workflow state.
+   - Accurately tracks latency in milliseconds (`duration_ms`) and separates transport success from business success (`found: False`, `error: ...`).
 
 ---
 
-### 3.6 `operations_server.py` (The Database Mutation & Action Server)
+### 3.4 `crm_server.py` (The Customer Intelligence MCP Server)
 
 #### Why does this file exist?
-Autonomous agents must not only answer questions; they must also **take authorized business actions**. However, making database changes is dangerous if not audited.
+The CRM MCP Server governs commercial enterprise profiles, stakeholder dossiers, contract tiers, and strategic meeting notes. It acts as the single source of truth for commercial customer relationships.
 
-`operations_server.py` provides safe, transactional tools that modify the database:
-- `Operations.create_customer`: Registers new accounts in `customer_accounts`.
-- `Operations.update_customer_status`: Transitions customer status (`Active`, `Churned`, `At-Risk`, `Suspended`).
-- `Operations.add_customer_note`: Adds operational notes to `customer_operation_notes`.
-- `Operations.create_follow_up_task`: Creates tasks in `follow_up_tasks`.
-- `Operations.get_audit_history`: Reads the immutable audit log in `operation_audit_logs`.
+#### Protocol Primitives Exposed:
+- **Tools**:
+  - `CRM.get_customer(customer_id: str)`: Looks up enterprise tier (e.g., `Enterprise Mission-Critical (Five-Nines)`), contract terms, renewal dates, assigned Account Executive, and SLA commitments.
+  - `CRM.search_customer(query: str)`: Directory keyword search across company names and industries. Leveraged by the agent's autonomous self-correction mechanism when customer IDs are misspelled.
+  - `CRM.update_notes(customer_id: str, note: str)`: Appends executive meeting notes stamped with UTC timestamps.
+- **Resources**:
+  - `crm://customers`: Direct-access JSON resource listing all active customer accounts.
+  - `crm://customers/{customer_id}`: Direct-access JSON resource reading a specific customer's commercial dossier.
+- **Prompts**:
+  - `crm_account_briefing`: Standardized executive briefing prompt analyzing commercial health, contract renewals, and stakeholder alignment.
+  - `crm_stakeholder_dossier`: Prompt template mapping executive sponsors, TAMs, and escalation paths.
 
-> **ACID Transaction Guarantee**: Every tool call in `operations_server.py` creates a database session, performs the mutation, writes a row to `operation_audit_logs` capturing the old value vs. new value, commits the transaction, and closes the session.
+---
+
+### 3.5 `analytics_server.py` (The Metrics & Telemetry MCP Server)
+
+#### Why does this file exist?
+Provides the agent with deep visibility into real-time financial metrics, product telemetry, and historical event timelines.
+
+#### Protocol Primitives Exposed:
+- **Tools**:
+  - `Analytics.get_customer_metrics(customer_id: str)`: Returns Annual Recurring Revenue (ARR), Monthly Recurring Revenue (MRR), Net Promoter Score (NPS), churn probability percentage, active user counts, API volume, error rates, and SLA compliance.
+  - `Analytics.get_customer_history(customer_id: str, months: int = 3)`: Returns chronological timelines of capacity upgrades, Quarterly Business Reviews (QBRs), and incident resolutions.
+- **Resources**:
+  - `analytics://metrics/{customer_id}`: Direct-access JSON telemetry resource for financial and platform health.
+  - `analytics://history/{customer_id}`: Direct-access JSON timeline resource of historical events.
+- **Prompts**:
+  - `analytics_churn_audit`: Prompt template investigating churn risk against telemetry trends and SLA compliance.
+  - `analytics_financial_review`: Revenue analysis template evaluating ARR, license seat utilization, and renewal upside.
+
+---
+
+### 3.6 `operations_server.py` (The Database Mutation & Action MCP Server)
+
+#### Why does this file exist?
+Autonomous AI agents in modern enterprises must not just retrieve information—they must **safely execute real-world operational changes**. However, direct database mutation is hazardous without transactional isolation and auditability.
+
+`operations_server.py` implements 10 transactional tools backed by SQLAlchemy and SQLite/PostgreSQL:
+
+#### Protocol Primitives Exposed:
+- **Tools (10 Core Operational Actions)**:
+  - `Operations.create_customer`: Registers new accounts in `customer_accounts` with status, owner, and renewal date.
+  - `Operations.list_customers`: Queries all registered customer accounts with lifecycle states and open task counts.
+  - `Operations.get_customer`: Reads single-customer operational lifecycle state.
+  - `Operations.update_customer_status`: Transitions operational status (`Active`, `At-Risk`, `Suspended`, `Churned`, `Inactive`).
+  - `Operations.add_customer_note`: Appends timestamped operational notes to `customer_operation_notes`.
+  - `Operations.get_customer_notes`: Retrieves reverse-chronological operational notes.
+  - `Operations.create_follow_up_task`: Schedules follow-up tasks with priority, assignee, and due date.
+  - `Operations.list_follow_up_tasks`: Queries tasks filtered by customer ID or status.
+  - `Operations.update_follow_up_task_status`: Marks tasks as `completed` or `pending`.
+  - `Operations.get_audit_history`: Queries immutable database audit records.
+- **Resources**:
+  - `operations://customers`: Live snapshot of persistent customer operational states.
+  - `operations://tasks`: Live snapshot of scheduled operational tasks.
+  - `operations://audit`: Latest 50 database audit logs capturing old vs. new values.
+- **Prompts**:
+  - `operations_onboard_customer`: End-to-end customer onboarding workflow template.
+  - `operations_audit_investigation`: Compliance audit investigation template.
+
+> **ACID Transaction & Audit Guarantee**: Every mutating tool call in `operations_server.py` opens an isolated database session, applies the changes, records an immutable entry in `operation_audit_logs` (capturing timestamp, user, action, and diffs), commits the transaction atomically, and safely closes the session.
+
+---
+
+### 3.7 The Multi-Server Runner (`run_mcp.py`) & Tool Inspection (`@modelcontextprotocol/inspector`)
+
+To make development, debugging, and external inspection seamless, the platform provides [`run_mcp.py`](file:///run_mcp.py), a dedicated multi-server runner CLI.
+
+#### 1. Inspecting Over STDIO (Recommended for MCP Inspector)
+Run the MCP Inspector directly against any discrete server:
+
+```bash
+# Inspect CRM MCP Server
+npx @modelcontextprotocol/inspector python run_mcp.py crm
+
+# Inspect Customer Operations MCP Server
+npx @modelcontextprotocol/inspector python run_mcp.py operations
+
+# Inspect Analytics MCP Server
+npx @modelcontextprotocol/inspector python run_mcp.py analytics
+```
+
+*(You can also invoke the server scripts directly: `npx @modelcontextprotocol/inspector python app/mcp/servers/crm_server.py`)*
+
+#### 2. Inspecting Over SSE (Web Transport)
+Because the Luna backend is running on `http://127.0.0.1:8080`, each server's SSE endpoint can be connected directly:
+1. Start the inspector: `npx @modelcontextprotocol/inspector`
+2. Select transport: **SSE**
+3. Enter URL:
+   - CRM Server: `http://127.0.0.1:8080/mcp/crm/sse`
+   - Analytics Server: `http://127.0.0.1:8080/mcp/analytics/sse`
+   - Operations Server: `http://127.0.0.1:8080/mcp/operations/sse`
+
+#### 3. Connecting to Claude Desktop
+To expose Luna's discrete MCP servers to Claude Desktop, add them to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "luna_crm": {
+      "command": "python",
+      "args": ["<PATH_TO_PROJECT>/app/mcp/servers/crm_server.py"]
+    },
+    "luna_analytics": {
+      "command": "python",
+      "args": ["<PATH_TO_PROJECT>/app/mcp/servers/analytics_server.py"]
+    },
+    "luna_operations": {
+      "command": "python",
+      "args": ["<PATH_TO_PROJECT>/app/mcp/servers/operations_server.py"]
+    }
+  }
+}
+```
+
+---
+
+### 3.8 Why Decoupled Microservices Beat Unified Servers in Multi-Agent Systems
+
+In early iterations or naive architectures, developers often make the mistake of creating a single **"unified" MCP server** that dumps all CRM, Analytics, and Database tools into one giant catalog. **This project explicitly rejects the unified server anti-pattern** for four fundamental architectural reasons:
+
+1. **Domain-Bounded Contexts (Separation of Concerns)**:
+   - CRM relationship dossiers, financial telemetry pipelines, and operational database tables represent distinct business domains with completely different data sources, latencies, and security requirements. Combining them into one server violates domain-driven design.
+2. **Principle of Least Privilege in Multi-Agent Topologies**:
+   - In a sophisticated multi-agent system, agents have specialized responsibilities:
+     - `Customer Research Agent` only needs access to CRM and Analytics.
+     - `Financial Analytics Agent` only needs access to Analytics.
+     - `Operations Execution Agent` only needs access to Operations.
+   - If all tools lived in one monolithic server, any agent connected to the server would be exposed to tools outside its domain. Decoupling them allows network-level and protocol-level security boundaries.
+3. **Independent Deployability & Fault Isolation**:
+   - If the operational database undergoes maintenance or schema migration, the CRM directory search and Analytics telemetry servers remain 100% operational. A crash or hang in one microservice cannot bring down the other domains.
+4. **Tool Catalog Precision & Token Efficiency**:
+   - When LLMs are exposed to dozens of unrelated tools simultaneously, prompt tokens explode and tool-selection hallucinations increase dramatically. Scoping tools into discrete, domain-specific servers keeps LLM context clean, focused, and token-efficient.
 
 ---
 
@@ -655,12 +837,13 @@ In `app/workflow/agent_workflow.py` (lines 568-616):
 #### The Problem
 Third-party cloud LLM APIs (Groq, OpenAI, Anthropic) will experience outages, network timeouts, or rate limits (`HTTP 429 Too Many Requests`). If your system crashes whenever an external API is down, your enterprise application has unacceptable uptime.
 
-#### How This Project Solves It: Deterministic Grounded Synthesis
+#### How This Project Solves It: Multi-Tier Failover & Grounded Synthesis
 In `app/workflow/llm_provider.py`:
-- When external APIs are available, it uses streaming LLM generation with jittered exponential backoff retries.
-- If external APIs fail or are unavailable (e.g. during local offline CI/CD test runs), it seamlessly falls back to `_local_grounded_synthesize()`.
-- This local engine inspects the verified tool results and generates structured, compliant Markdown responses without needing a single cloud token!
-- **Proof of Resilience**: All 52 automated tests in the test suite pass 100% deterministically both online and offline.
+- **Tier 1 (Primary Key + Jittered Backoff)**: Uses streaming LLM generation with jittered exponential backoff retries when `GROQ_API_KEY` hits transient rate limits.
+- **Tier 2 (Secondary Backup Key)**: If the primary key exhausts retries or fails, requests fail over to `GROQ_API_KEY2` automatically.
+- **Tier 3 (Grounded Offline Engine)**: If external APIs fail or are unavailable (e.g. during local offline CI/CD test runs), it seamlessly falls back to `_local_grounded_synthesize()`.
+- This local engine inspects verified tool results and generates structured, compliant Markdown responses without needing a single cloud token.
+- **Proof of Resilience**: All 61 automated tests in the test suite pass 100% deterministically both online and offline.
 
 ---
 

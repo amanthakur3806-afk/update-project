@@ -53,15 +53,21 @@ class AlignmentGuardrailService:
         "Lead Support Operations Architect": 8,
         "Director of Customer Success": 7,
         "Senior Solutions Architect": 6,
+        "Data Eng": 6,
+        "Data Engineer": 6,
+        "Software Engineer": 6,
         "Senior Enterprise Account Executive": 5,
-        "Account Executive": 4,
-        "Customer Operations": 4,
-        "Anonymous": 1,
+        "Account Executive": 5,
+        "Customer Operations": 5,
+        "Read-Only": 1,
+        "Viewer": 1,
+        "Restricted": 1,
     }
 
-    # High-impact operations requiring role level >= 4 (authenticated)
+    # High-impact operations requiring role level >= 4
     RESTRICTED_OPERATIONS = {
         "Operations.change_customer_status": 4,
+        "Operations.update_customer_status": 4,
         "Operations.add_customer_note": 3,
         "Operations.create_follow_up_task": 3,
         "Operations.create_customer": 4,
@@ -153,8 +159,15 @@ class AlignmentGuardrailService:
                     )
 
         # 2. RBAC check on restricted operations
-        user_role = (user_profile.get("role") if user_profile else "Anonymous") or "Anonymous"
-        user_level = self.ROLE_HIERARCHY.get(user_role, 3)
+        user_role = (user_profile.get("role") if user_profile else "Account Executive") or "Account Executive"
+        role_lower = user_role.strip().lower()
+        if user_role in self.ROLE_HIERARCHY:
+            user_level = self.ROLE_HIERARCHY[user_role]
+        elif any(tag in role_lower for tag in ("read-only", "readonly", "viewer", "restricted", "guest", "anonymous")):
+            user_level = 1
+        else:
+            # Custom registered enterprise roles default to level 5 (authenticated operator)
+            user_level = 5
 
         req_level = self.RESTRICTED_OPERATIONS.get(tool_name, 1)
         if user_level < req_level:

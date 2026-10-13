@@ -12,8 +12,8 @@ async def test_end_to_end_agent_workflow():
     
     result = await workflow.run(
         agent_id="customer_research_agent",
-        query="Give me a complete summary of customer ABC including recent activity and internal documentation.",
-        conversation_id="test_conv_abc"
+        query="Give me a complete summary of customer SPOTIFY including recent activity and internal documentation.",
+        conversation_id="test_conv_spotify"
     )
 
     assert result["status"] == "completed"
@@ -27,7 +27,7 @@ async def test_end_to_end_agent_workflow():
     assert prompt_file.exists()
     content = prompt_file.read_text(encoding="utf-8")
     assert "customer_research_agent" in content
-    assert "ABC Global Logistics" in content or "Customer Research Playbook" in content
+    assert "Spotify AB" in content or "Customer Research Playbook" in content
 
     # Verify execution record in database
     db = SessionLocal()

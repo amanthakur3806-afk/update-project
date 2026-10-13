@@ -9,14 +9,14 @@ def test_chunking_logic():
     assert len(chunks) >= 2
 
 def test_embeddings_generation():
-    text = "Customer ABC logistics infrastructure"
+    text = "Customer SPOTIFY streaming infrastructure"
     vec = embeddings_provider.get_embedding(text)
     assert vec is not None
     assert len(vec) == 384
 
 def test_faiss_search_and_kb_isolation():
-    # Query for customer ABC in customer_docs
-    q_vec = embeddings_provider.get_embedding("telemetry webhooks and customer ABC")
+    # Query for customer SPOTIFY in customer_docs
+    q_vec = embeddings_provider.get_embedding("telemetry webhooks and customer SPOTIFY")
     results = vector_store.search(q_vec, top_k=3, kb_id="customer_docs")
     
     assert len(results) > 0

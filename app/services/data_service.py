@@ -31,202 +31,142 @@ class DataService:
         """Seed rich realistic enterprise datasets for CRM and Analytics."""
         customers_seed = [
             {
-                "customer_id": "ABC",
-                "company_name": "ABC Global Logistics & Supply Inc.",
-                "industry": "Logistics & Supply Chain Tracking",
-                "tier": "Enterprise Tier 1 (Platinum)",
+                "customer_id": "SPOTIFY",
+                "company_name": "Spotify AB",
+                "industry": "Digital Media, Audio Streaming, and Podcasting Infrastructure",
+                "tier": "Enterprise Tier 1 (Platinum Ultra)",
                 "sla": "Platinum Mission-Critical (99.99% Uptime, 15-min Sev-1 Response)",
-                "contract_value": "$480,000 / year",
-                "renewal_date": "2027-01-15",
+                "contract_value": "$3,600,000 / year",
+                "renewal_date": "2027-04-15",
                 "account_owner": "Sarah Jenkins",
-                "primary_stakeholder": "Dr. Marcus Vance (marcus.vance@abc-logistics.example.com)",
+                "primary_stakeholder": "Gustav Söderström (gustav.s@spotify.example.com)",
                 "status": "Active",
                 "notes": [
-                    "Global tracking telemetry gateway upgraded to v3.2 in Q1 2025.",
-                    "Seasonal burst capacity exception pre-authorized for Q4 holiday peak.",
-                    "Annual business review completed with executive sponsorship."
+                    "Migrated global event processing from Apache Flink to Managed Kafka; telemetry ingest latency dropped from 110ms to 24ms.",
+                    "Authorized 3.5x seasonal burst capacity allowance for Spotify Wrapped global traffic surge in December.",
+                    "Completed SOC2 Type II compliance audit and European GDPR data residency verification with zero findings."
                 ]
             },
             {
-                "customer_id": "XYZ",
-                "company_name": "XYZ FinTech Global Holdings",
-                "industry": "Financial Services & Algorithmic Trading",
-                "tier": "Enterprise Tier 1 (Platinum)",
-                "sla": "Platinum Mission-Critical (99.99% Uptime, 15-min Sev-1 Response)",
-                "contract_value": "$720,000 / year",
+                "customer_id": "STRIPE",
+                "company_name": "Stripe Inc.",
+                "industry": "Financial Infrastructure, Payment Processing, and Billing SaaS",
+                "tier": "Enterprise Mission-Critical (Five-Nines Tier)",
+                "sla": "Mission-Critical Five-Nines (99.999% Uptime, 5-min Sev-1 Response, PCI-DSS Level 1)",
+                "contract_value": "$5,200,000 / year",
                 "renewal_date": "2026-11-30",
-                "account_owner": "Michael Chang",
-                "primary_stakeholder": "Elena Rostova (e.rostova@xyzfintech.example.com)",
+                "account_owner": "Sarah Jenkins",
+                "primary_stakeholder": "David Singleton (david.s@stripe.example.com)",
                 "status": "Active",
                 "notes": [
-                    "Requested dedicated VPC peering and custom compliance audit logs for SOC2 Type II.",
-                    "Latency jitter observed during market open spikes; engineering investigating eBPF bypass.",
-                    "Contract renewal negotiation scheduled for November."
+                    "Enforced active-active multi-region failover between us-east-1 and us-west-2 with zero-downtime database replication.",
+                    "PCI-DSS Level 1 tokenization gateway validated with end-to-end payload encryption.",
+                    "Quarterly business review completed with executive leadership; expansion into LATAM cross-border settlements scheduled for Q1 2027."
                 ]
             },
             {
-                "customer_id": "ACME",
-                "company_name": "Acme Industrial Automation Corp",
-                "industry": "Smart Manufacturing & Industrial IoT",
-                "tier": "Enterprise Tier 2 (Gold)",
-                "sla": "Enterprise Gold (99.95% Uptime, 1-hr Sev-1 Response)",
-                "contract_value": "$240,000 / year",
-                "renewal_date": "2027-01-20",
-                "account_owner": "Jessica Vance",
-                "primary_stakeholder": "Robert Sterling (r.sterling@acme-industrial.example.com)",
+                "customer_id": "DATADOG",
+                "company_name": "Datadog Inc.",
+                "industry": "Cloud Monitoring, Observability Telemetry, and Cybersecurity",
+                "tier": "Enterprise Tier 1 (Platinum Observability)",
+                "sla": "Platinum Mission-Critical (99.99% Uptime, 15-min Sev-1 Response)",
+                "contract_value": "$2,800,000 / year",
+                "renewal_date": "2027-02-28",
+                "account_owner": "Alex Chen",
+                "primary_stakeholder": "Alexis Lê-Quôc (alexis.l@datadoghq.example.com)",
                 "status": "Active",
                 "notes": [
-                    "Ingesting telemetry from 14 factory assembly plants across North America and Europe.",
-                    "Edge agent containers upgraded to v4.8.",
-                    "Planning expansion into 6 additional smart warehouses in Q4 2026."
+                    "Ingesting 25+ trillion real-time observability events per month across dual AWS and GCP environments.",
+                    "Kernel-level eBPF tracing agents deployed across 18,000 Kubernetes nodes with sub-millisecond overhead.",
+                    "Renewal discussions initiated for multi-year contract expansion with automated log indexing."
                 ]
             },
             {
-                "customer_id": "NOVA",
-                "company_name": "NovaHealth Technologies International",
-                "industry": "Healthcare Genomics & Clinical SaaS",
-                "tier": "Enterprise Tier 1 (Platinum Health)",
-                "sla": "Platinum Mission-Critical (99.99% Uptime, 15-min Sev-1 Response, HIPAA/HITECH Certified)",
-                "contract_value": "$620,000 / year",
-                "renewal_date": "2027-08-10",
-                "account_owner": "David K. Miller",
-                "primary_stakeholder": "Dr. Aris Thorne (athorne@novahealth.example.com)",
+                "customer_id": "SHOPIFY",
+                "company_name": "Shopify Inc.",
+                "industry": "Global Commerce Platform, Merchant Operations, and Checkout Infrastructure",
+                "tier": "Enterprise Tier 2 (Gold High-Burst Tier)",
+                "sla": "Enterprise Gold (99.95% Uptime, 1-hr Sev-1 Response, 4x Burst Allowance)",
+                "contract_value": "$4,100,000 / year",
+                "renewal_date": "2026-12-31",
+                "account_owner": "Alex Chen",
+                "primary_stakeholder": "Farhan Thawar (farhan.t@shopify.example.com)",
                 "status": "Active",
                 "notes": [
-                    "Business Associate Agreement (BAA) active. Zero-data-retention compliance addendum enforced.",
-                    "Evaluating European clinical cloud expansion for 2027.",
-                    "Annual third-party penetration test completed with zero critical findings."
-                ]
-            },
-            {
-                "customer_id": "VERTEX",
-                "company_name": "Vertex Media & Streaming Networks",
-                "industry": "Digital Media & Video Streaming",
-                "tier": "Enterprise Tier 2 (Gold)",
-                "sla": "Enterprise Gold (99.95% Uptime, 1-hr Sev-1 Response)",
-                "contract_value": "$350,000 / year",
-                "renewal_date": "2026-12-15",
-                "account_owner": "Amanda Ross",
-                "primary_stakeholder": "Liam Zhao (lzhao@vertexmedia.example.com)",
-                "status": "Active",
-                "notes": [
-                    "Delivered 2.4M concurrent websocket sessions during global live stream championship.",
-                    "Evaluating upgrade to Platinum Tier for 2027 live event schedule."
-                ]
-            },
-            {
-                "customer_id": "QUANTUM",
-                "company_name": "Quantum Retail Networks Inc",
-                "industry": "Omnichannel E-Commerce & POS",
-                "tier": "Enterprise Tier 3 (Silver)",
-                "sla": "Enterprise Silver (99.90% Uptime, 4-hr Sev-1 Response)",
-                "contract_value": "$120,000 / year",
-                "renewal_date": "2026-10-31",
-                "account_owner": "Brian Kelly",
-                "primary_stakeholder": "Claire Dupont (c.dupont@quantum-retail.example.com)",
-                "status": "At-Risk",
-                "notes": [
-                    "Renewal approaching on October 31, 2026. Customer requested burst telemetry pricing review.",
-                    "Account executive preparing Gold Tier proposal with holiday burst discount."
+                    "Provisioned dedicated Pod clusters for Black Friday / Cyber Monday (BFCM) flash-sale traffic handling peak 120M rpm.",
+                    "Completed MySQL semi-synchronous replication optimization to safeguard transactional ledger consistency.",
+                    "Renewal scheduled for December; evaluating multi-cloud edge cache deployment."
                 ]
             }
         ]
 
         metrics_seed = {
-            "ABC": {
-                "arr": 480000,
-                "mrr": 40000,
-                "nps": 78,
-                "churn_risk": 0.04,
-                "api_calls_monthly": 32400000,
-                "avg_latency_ms": 18.4,
-                "error_rate": 0.0008,
+            "SPOTIFY": {
+                "arr": 3600000,
+                "mrr": 300000,
+                "nps": 82,
+                "churn_risk": 0.03,
+                "api_calls_monthly": 2450000000,
+                "avg_latency_ms": 12.4,
+                "error_rate": 0.0002,
                 "sla_compliance": 0.9999,
                 "contract_duration_months": 36
             },
-            "XYZ": {
-                "arr": 720000,
-                "mrr": 60000,
-                "nps": 42,
-                "churn_risk": 0.34,
-                "api_calls_monthly": 150000000,
-                "avg_latency_ms": 6.2,
-                "error_rate": 0.0012,
-                "sla_compliance": 0.9995,
-                "contract_duration_months": 24
-            },
-            "ACME": {
-                "arr": 240000,
-                "mrr": 20000,
-                "nps": 65,
-                "churn_risk": 0.08,
-                "api_calls_monthly": 18000000,
-                "avg_latency_ms": 32.1,
-                "error_rate": 0.0003,
-                "sla_compliance": 0.9998,
-                "contract_duration_months": 36
-            },
-            "NOVA": {
-                "arr": 620000,
-                "mrr": 51666,
-                "nps": 88,
-                "churn_risk": 0.02,
-                "api_calls_monthly": 45000000,
-                "avg_latency_ms": 14.5,
-                "error_rate": 0.0001,
+            "STRIPE": {
+                "arr": 5200000,
+                "mrr": 433333,
+                "nps": 89,
+                "churn_risk": 0.01,
+                "api_calls_monthly": 4800000000,
+                "avg_latency_ms": 11.2,
+                "error_rate": 0.00005,
                 "sla_compliance": 0.99999,
                 "contract_duration_months": 36
             },
-            "VERTEX": {
-                "arr": 350000,
-                "mrr": 29166,
-                "nps": 72,
-                "churn_risk": 0.12,
-                "api_calls_monthly": 88000000,
-                "avg_latency_ms": 22.0,
-                "error_rate": 0.0006,
-                "sla_compliance": 0.9996,
+            "DATADOG": {
+                "arr": 2800000,
+                "mrr": 233333,
+                "nps": 85,
+                "churn_risk": 0.02,
+                "api_calls_monthly": 6200000000,
+                "avg_latency_ms": 14.1,
+                "error_rate": 0.0004,
+                "sla_compliance": 0.9999,
                 "contract_duration_months": 24
             },
-            "QUANTUM": {
-                "arr": 120000,
-                "mrr": 10000,
-                "nps": 50,
-                "churn_risk": 0.45,
-                "api_calls_monthly": 12000000,
-                "avg_latency_ms": 48.0,
-                "error_rate": 0.0025,
-                "sla_compliance": 0.9991,
-                "contract_duration_months": 12
+            "SHOPIFY": {
+                "arr": 4100000,
+                "mrr": 341666,
+                "nps": 75,
+                "churn_risk": 0.06,
+                "api_calls_monthly": 3100000000,
+                "avg_latency_ms": 16.8,
+                "error_rate": 0.0003,
+                "sla_compliance": 0.9996,
+                "contract_duration_months": 36
             }
         }
 
         history_seed = {
-            "ABC": [
-                {"date": "2025-01-15", "event": "Annual Business Review", "details": "Executive sponsorship renewed for 36-month enterprise agreement."},
-                {"date": "2025-03-22", "event": "Architecture Upgrade", "details": "Migrated webhook ingestion to dedicated AWS DirectConnect gateway."},
-                {"date": "2025-07-10", "event": "Quarterly Review", "details": "SLA uptime verified at 99.995% across all logistics nodes."}
+            "SPOTIFY": [
+                {"date": "2024-04-15", "event": "Enterprise Agreement", "details": "Signed 36-month Enterprise Grid agreement at $3.6M/yr with multi-cloud burst rights."},
+                {"date": "2025-01-20", "event": "Architecture Migration", "details": "Migrated real-time streaming queues from Flink to Managed Kafka; latency reduced by 78%."},
+                {"date": "2025-12-05", "event": "Spotify Wrapped Peak", "details": "Successfully sustained 3.5x traffic surge with 99.995% availability and zero dropped streams."}
             ],
-            "XYZ": [
-                {"date": "2024-11-30", "event": "Master Services Agreement", "details": "24-month contract signed with dedicated hardware cluster."},
-                {"date": "2025-08-14", "event": "Incident Sev-2", "details": "Transient 45ms jitter during peak market volatility. TAM paged."},
-                {"date": "2025-09-02", "event": "Optimization Initiative", "details": "eBPF kernel bypass deployment scheduled to mitigate peak latency."}
+            "STRIPE": [
+                {"date": "2023-11-30", "event": "Strategic Agreement", "details": "Executed 36-month Five-Nines SLA agreement with dedicated Principal Reliability Engineering bridge."},
+                {"date": "2025-04-12", "event": "Failover Exercise", "details": "Simulated complete us-east-1 regional partition; traffic diverted to us-west-2 in 42 seconds with zero ledger loss."},
+                {"date": "2025-10-18", "event": "PCI-DSS Recertification", "details": "Passed annual Level 1 security assessment with zero findings on tokenization gateways."}
             ],
-            "ACME": [
-                {"date": "2025-02-10", "event": "Plant Rollout", "details": "Munich smart factory connected 1,200 new robotic arms."},
-                {"date": "2025-06-15", "event": "Edge Upgrade", "details": "Upgraded industrial IoT edge container fleet to v4.8."}
+            "DATADOG": [
+                {"date": "2025-02-28", "event": "Contract Execution", "details": "Signed 24-month Observability Agreement at $2.8M/yr."},
+                {"date": "2025-08-14", "event": "eBPF Probe Rollout", "details": "Completed global rollout of kernel-level tracing probes across 18,000 Kubernetes nodes."},
+                {"date": "2026-01-10", "event": "Multi-Cloud Expansion", "details": "Integrated dual-cloud telemetry ingest across AWS us-east-1 and GCP europe-west1."}
             ],
-            "NOVA": [
-                {"date": "2024-08-10", "event": "Contract Execution", "details": "36-month enterprise agreement signed with HIPAA/FedRAMP high encryption."},
-                {"date": "2025-06-18", "event": "Security Audit", "details": "Annual SOC2 Type II and HIPAA third-party penetration test passed with zero findings."}
-            ],
-            "VERTEX": [
-                {"date": "2024-12-15", "event": "Platform Go-Live", "details": "Migrated OTT transcoding telemetry pipelines to Nexus platform."},
-                {"date": "2025-07-28", "event": "Peak Event Milestone", "details": "Successfully handled 2.4M concurrent websocket streams with zero dropped frames."}
-            ],
-            "QUANTUM": [
-                {"date": "2025-10-31", "event": "Annual Renewal", "details": "12-month contract renewed with baseline Silver SLA."},
-                {"date": "2026-09-15", "event": "Renewal Notice", "details": "90-day renewal horizon initiated; customer requested volume pricing review."}
+            "SHOPIFY": [
+                {"date": "2023-12-31", "event": "Contract Execution", "details": "Signed 36-month Gold High-Burst Agreement at $4.1M/yr."},
+                {"date": "2025-11-28", "event": "BFCM Flash-Sale Peak", "details": "Processed record 120M rpm during Cyber Monday with zero checkout checkout timeouts."},
+                {"date": "2026-03-15", "event": "Pod Architecture Upgrade", "details": "Isolated Enterprise Plus merchants into dedicated GCP hardware partitions."}
             ]
         }
 
@@ -244,16 +184,57 @@ class DataService:
     # CRM Operations
     # ----------------------------------------------------------------------
 
+    def _sync_from_db(self) -> None:
+        """Sync any newly created SQL CustomerAccount records into the CRM cache."""
+        try:
+            from app.database import SessionLocal
+            from app.models.customer_operations import CustomerAccount
+            db = SessionLocal()
+            try:
+                accounts = db.query(CustomerAccount).all()
+                for acc in accounts:
+                    cid = acc.customer_id.strip().upper()
+                    if cid not in self._customers:
+                        notes_list = [n.note for n in getattr(acc, "notes", [])]
+                        self._customers[cid] = {
+                            "customer_id": cid,
+                            "company_name": acc.company_name,
+                            "industry": "Enterprise Account",
+                            "tier": "Enterprise Tier 1",
+                            "sla": "Standard Enterprise SLA",
+                            "contract_value": "Pending Commercial Valuation",
+                            "renewal_date": acc.renewal_date.isoformat() if acc.renewal_date else None,
+                            "account_owner": acc.owner,
+                            "primary_stakeholder": None,
+                            "status": acc.status,
+                            "notes": notes_list,
+                        }
+                    else:
+                        if acc.owner:
+                            self._customers[cid]["account_owner"] = acc.owner
+                        if acc.renewal_date:
+                            self._customers[cid]["renewal_date"] = acc.renewal_date.isoformat()
+                        if acc.status:
+                            self._customers[cid]["status"] = acc.status
+            finally:
+                db.close()
+        except Exception:
+            pass
+
     def get_customer(self, customer_id: str) -> Optional[Dict[str, Any]]:
         """Look up a customer record by ID. Returns None if not found."""
         if not customer_id:
             return None
-        return self._customers.get(customer_id.strip().upper())
+        cid = customer_id.strip().upper()
+        if cid not in self._customers:
+            self._sync_from_db()
+        return self._customers.get(cid)
 
     def search_customers(self, query: str) -> List[Dict[str, Any]]:
         """Search customers by ID, company name, or industry."""
         if not query:
             return []
+        self._sync_from_db()
         q = query.lower().strip()
         matches = []
         for cust in self._customers.values():
@@ -267,6 +248,7 @@ class DataService:
 
     def list_customers(self) -> List[Dict[str, Any]]:
         """List all loaded customer records."""
+        self._sync_from_db()
         return list(self._customers.values())
 
     def save_customer(self, customer: Dict[str, Any]) -> str:
